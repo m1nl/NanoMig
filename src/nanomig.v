@@ -80,14 +80,15 @@ module nanomig (
    output	 _ram_we, // sram write enable
    output	 _ram_oe, // sram output enable
 
-   output reg	 fastram_sel,
+   output   	 fastram_sel,
    output [22:1] fastram_addr,
    output	 fastram_lds,
    output	 fastram_uds,
    input [15:0]	 fastram_dout,
    output [15:0] fastram_din,
    output	 fastram_wr,
-   input	 fastram_ready
+   input	 fastram_ack,
+   input	 fastram_nack
 ); 
 `ifndef LATTICE
   `default_nettype none
@@ -203,46 +204,36 @@ wire [28:1] ram_addr;
 wire	    ram_sel;
 wire	    ram_lds;
 wire	    ram_uds;
+wire	    ram_ready;
    
-// ram_ready finally is the clkena for the tg68k
-reg	    ram_ready;
+//    `ifdef ENABLE_TG68K  
+//        reg frr_d=1'b0;
+//        always @(posedge clk_sys) begin
+//        ram_ready<=1'b0;
+//        if(clk7_en) begin
+//            if(fastram_ack!=frr_d)
+//                ram_ready<=1'b1;
+//            frr_d <= fastram_ack;
+//        end
+//	`else
+//		reg frr_d=1'b0;
+//        always @(posedge clk_sys) begin
+//        if(!cpu_rst)
+//            ram_ready<=1'b0;
+//        else if(!ram_sel)
+//            ram_ready<=1'b0;
+//        else if(fastram_ack!=frr_d)
+//            ram_ready<=1'b1;
+//        frr_d <= fastram_ack;	
+//    `endif
+//end
+reg [2:0] fastram_ack_d;
 
-// generate a ram_cs at the begin of the bus cycle, so the ram cycle starts
-// at the right time
-wire	    ram_cs = (cpu_ph2 && ram_sel) || ram_cs_trigger || ram_cs_triggerD; 
-
-reg	    ram_cs_trigger;   
-always @(negedge clk_sys)
-   if( cpu_ph2 )      ram_cs_trigger <= ram_sel;
-   else if( clk7_en ) ram_cs_trigger <= 1'b0;   
-
-reg	    ram_cs_triggerD;
 always @(posedge clk_sys)
-  ram_cs_triggerD <= ram_cs_trigger;   
-   
-// neg/clk7
-    `ifdef ENABLE_TG68K  
-        reg frr_d=1'b0;
-        always @(posedge clk_sys) begin
-        ram_ready<=1'b0;
-        if(clk7_en) begin
-            if(fastram_ready!=frr_d)
-                ram_ready<=1'b1;
-            frr_d <= fastram_ready;
-        end
-	`else
-		reg frr_d=1'b0;
-        always @(posedge clk_sys) begin
-        if(!cpu_rst)
-            ram_ready<=1'b0;
-        else if(!ram_sel)
-            ram_ready<=1'b0;
-        else if(fastram_ready!=frr_d)
-            ram_ready<=1'b1;
-        frr_d <= fastram_ready;	
-    `endif
-end
-   
+  fastram_ack_d <= {fastram_ack_d[2:1], fastram_ack};
+
+assign ram_ready = fastram_ack_d[2] != fastram_ack_d[1];
+
 cpu_wrapper cpu_wrapper
 (
 	.reset        (cpu_rst         ),
@@ -291,28 +282,51 @@ cpu_wrapper cpu_wrapper
 	.nmi_addr     (cpu_nmi_addr    )
 );
    
-`ifdef ENABLE_TG68K
-	reg ram_sel_d;
-	reg ram_ready_d;
-	always @(posedge clk_sys) begin
-		ram_ready_d <= ram_ready;
-	if( clk7n_en) begin
-			if(ram_sel && !ram_ready_d)
-				fastram_sel <= 1'b1;
-		end
-	if( fastram_ready != frr_d ) fastram_sel <= 1'b0;   
-	end
-`else
-	reg ram_sel_d;
-	always @(posedge clk_sys) begin
-	if( cpu_ph2) begin
-			if(!ram_sel_d)
-				fastram_sel <= ram_sel;
-			ram_sel_d <= ram_sel;
-		end
-	if( fastram_ready != frr_d ) fastram_sel <= 1'b0;   
-	end			
-`endif	
+//reg frr_d;
+//`ifdef ENABLE_TG68K
+//	reg ram_sel_d;
+//	reg ram_ready_d;
+//	always @(posedge clk_sys) begin
+//		ram_ready_d <= ram_ready;
+//	if( clk7n_en) begin
+//			if(ram_sel && !ram_ready_d)
+//				fastram_sel <= 1'b1;
+//		end
+//	if( fastram_ack != frr_d ) fastram_sel <= 1'b0;   
+//	end
+//`else
+//	reg ram_sel_d;
+//	always @(posedge clk_sys) begin
+//	if( cpu_ph2) begin
+//			if(!ram_sel_d)
+//				fastram_sel <= ram_sel;
+//			ram_sel_d <= ram_sel;
+//		end
+//	if( fastram_ack != frr_d ) fastram_sel <= 1'b0;   
+//	end			
+//`endif	
+
+reg [2:0] fastram_nack_d;
+reg       ram_sel_d;
+reg       ram_nack;
+
+assign fastram_sel = ram_sel ^ ram_sel_d;
+
+always @(posedge clk_sys) begin
+  fastram_nack_d <= {fastram_nack_d[2:1], fastram_nack};
+
+  if (clk7_en && ram_nack) begin
+    ram_sel_d <= 0;
+    ram_nack  <= 0;
+  end else if (clk7n_en && ram_sel)
+    ram_sel_d <= 1;
+
+  if (ram_ready || reset)
+    ram_sel_d <= 0;
+
+  if (fastram_nack_d[2] != fastram_nack_d[1])
+    ram_nack <= 1;
+end
 
 assign fastram_addr = ram_addr;
 assign fastram_lds = ram_lds;
