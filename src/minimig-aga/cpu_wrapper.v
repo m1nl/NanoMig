@@ -64,7 +64,7 @@ module cpu_wrapper
 	output reg        chip_rw,
 	input             chip_dtack,
 	input       [2:0] chip_ipl,
-	
+
 	input      [15:0] fastchip_dout,
 	output reg        fastchip_sel,
 	output            fastchip_lds,
@@ -91,7 +91,7 @@ module cpu_wrapper
 	output reg [31:0] nmi_addr
 );
 
-wire cpu_req = (cpustate != 1);
+wire cpu_req = (cpustate != 1) && (!skip_fetch);
 
 assign ramsel       = cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
 assign ramshared    = sel_dd;
@@ -112,7 +112,7 @@ wire sel_kicklower = !cpu_addr[31:24] && (cpu_addr[23:18] == 6'b111110);
 wire sel_chipram   = !cpu_addr[31:21] && cchip; 		             //$000000 - $1FFFFF
 
 // we route everything hrtmon related through cart.v (needs a couple of signals to
-// decide what to do, would not be good style to replicate that here). 
+// decide what to do, would not be good style to replicate that here).
 wire sel_nmi_vector = (cpu_addr[31:2] == nmi_addr[31:2]) && (cpustate == 2);
 
 wire [15:0] ramdat;
@@ -136,7 +136,7 @@ assign ramdat = sel_rtg ? {ramdout[7:0], ramdout[15:8]}  : ramdout;
 // Fast RAM, 20-5f => 20-5f;
 // Slow RAM, c0-d7 => 60-77;
 // Kick ROM, f8-ff => 78->7f;
-// ramaddr[21] = cpu_addr[21] | cpu_addr[23]; 
+// ramaddr[21] = cpu_addr[21] | cpu_addr[23];
 // All other bits passed through unmodified.
 assign ramaddr[28:23] = 6'b0;
 assign ramaddr[22:21] = {cpu_addr[22],cpu_addr[21]|cpu_addr[23]};
@@ -149,6 +149,8 @@ assign fastchip_rnw = wr;
 reg  [31:0] cpu_addr;
 reg  [15:0] cpu_dout;
 wire [15:0] cpu_din = ramsel ? ramdat : fastchip_selack ? fastchip_dout : {sel_autoconfig ? autocfg_data : chip_data[15:12], chip_data[11:0]};
+reg         skip_fetch;
+wire        skip_fetch_i;
 reg         wr;
 reg         uds_in;
 reg         lds_in;
@@ -159,7 +161,7 @@ always @* begin
 `ifdef CPU_SWITCHABLE
    if( cpucfg[1] ) begin
 `endif
-`ifdef ENABLE_TG68K      
+`ifdef ENABLE_TG68K
 		cpu_dout     = cpu_dout_p;
 		cpustate     = cpustate_p;
 		cacr         = cacr_p;
@@ -183,6 +185,7 @@ always @* begin
 		cpu_addr     = cpu_addr_p;
 		fastchip_sel = cpu_req & !cpu_addr_p[31:24];
 		fastchip_lw  = longword;
+        skip_fetch   = skip_fetch_i;
 `endif
 `endif
 `ifdef CPU_SWITCHABLE
@@ -208,6 +211,7 @@ always @* begin
 		chip_data    = chip_dout;
 		fastchip_sel = 0;
 		fastchip_lw  = 0;
+        skip_fetch   = 0;
 `endif
 `ifdef CPU_SWITCHABLE
 	end
@@ -239,10 +243,10 @@ TG68KdotC_Kernel
 	.MUL_Mode(2),       // 0=>16Bit,  1=>32Bit,         2=>switchable with CPU(1),  3=>no MUL,
 	.DIV_Mode(2),       // 0=>16Bit,  1=>32Bit,         2=>switchable with CPU(1),  3=>no DIV,
 	.BitField(2),       // 0=>no,     1=>yes,           2=>switchable with CPU(1)
-	.BarrelShifter(1),  // 0=>no,	  1=>yes,	    2=>switchable with CPU(1)
 	.MUL_Hardware(1)    // 0=>no,  	  1=>yes,
 )
 `endif
+
 cpu_inst_p
 (
   .clk(clk),
@@ -254,18 +258,21 @@ cpu_inst_p
   .clkena_in(~cpu_req | chipready | ramready | fastchip_ready),
   .data_in(cpu_din),
   .IPL(cpu_ipl),
-  .IPL_autovector(1),
-  .regin_out(),
+  .IPL_autovector(1'b1),
+  .berr(),
+  .CPU(cpucfg),
   .addr_out(cpu_addr_p),
   .data_write(cpu_dout_p),
   .nWr(wr_p),
   .nUDS(uds_p),
   .nLDS(lds_p),
-  .nResetOut(reset_out_p),
-  .longword(longword),
-  
-  .CPU(cpucfg),
   .busstate(cpustate_p),		// 0: fetch code, 1: no memaccess, 2: read data, 3: write data
+  .longword(longword),
+  .nResetOut(reset_out_p),
+  .FC(),
+  .clr_berr(),
+  .skipFetch(skip_fetch_i),
+  .regin_out(),
   .CACR_out(cacr_p),
   .VBR_out(vbr_p)
 );
@@ -304,7 +311,7 @@ fx68k cpu_inst_o
 
 	.FC0(fc_o[0]),
 	.FC1(fc_o[1]),
-	.FC2(fc_o[2]), 
+	.FC2(fc_o[2]),
 
 	.VPAn(~&fc_o),
 	.BERRn(1),
@@ -358,7 +365,7 @@ always @(*) begin
 			6'hb: autocfg_data = 4'b1011;
 			default: ;
 		endcase
-	end 
+	end
 	else if (autocfg_card) begin
 		if (~cfg_z3) begin
 			// Zorro II RAM (Up to 8 meg at 0x200000)
@@ -425,7 +432,7 @@ always @(posedge clk) begin
 				toccata_ena <= 1;
 				toccata_base <= cpu_dout[7:0];
 				ac_toccata<=1'b1;
-			end		
+			end
 		end
 		else if (~cfg_z3) begin
 			if (chip_addr[6:1] == 6'b100100) begin // Register 0x48 - config, ZII RAM

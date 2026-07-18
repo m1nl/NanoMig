@@ -178,70 +178,74 @@ localparam PORTIDLE=2'b11;
 
 reg [1:0] sdram_port;
 
-reg [2:0] sync_d;
+reg [3:0] sync_d;
+
+// Refresh interval; 60ms
+// With 13 bit row address we need to visit 8192 rows every 60ms
+// So 136534 refreshes per second.
+// The SDRAM controller completes each round at 7.09MHz
+// so refresh must happen at least every 51 rounds.
+localparam REFRESHSCHEDULE = 50;
+
+reg [5:0] refreshcnt;
 
 always @(posedge clk) begin
-  sd_cmd <= CMD_NOP;  // default: idle
-  sync_d <= {sync_d[1:0], sync};
-  drive_dq <= 1'b0;
-
   // init state machines runs once reset ends
   if (!reset_n) begin
+    sd_cmd <= CMD_NOP;  // default: idle
+    drive_dq <= 1'b0;
+    sync_d <= 0;
+
     init_state <= 5'h1f;
+    refreshcnt <= REFRESHSCHEDULE;
     sdram_port <= PORTIDLE;
     state <= STATE_IDLE;
     we_l <= 0;
-    p2_ack <= 1'b0;
+    p2_ack <= 0;
 
-  end else begin
-    if (init_state != 0)
-      state <= state + 3'd1;
-    if ((state == STATE_LAST) && (init_state != 0))
-      init_state <= init_state - 5'd1;
-  end
+  end else if (init_state != 0) begin
+    sd_cmd <= CMD_NOP;  // default: idle
+    drive_dq <= 1'b0;
 
-  if (init_state != 0) begin
-    // initialization takes place at the end of the reset
+    state <= state + 3'd1;
+
     if (state == STATE_IDLE) begin
       if (init_state == 13) begin
         sd_cmd <= CMD_PRECHARGE;
         sd_addr[10] <= 1'b1;      // precharge all banks
       end
-      if(init_state == 2) begin
+
+      if (init_state == 2) begin
         sd_cmd <= CMD_LOAD_MODE;
         sd_addr <= MODE;
       end
+    end else if (state == STATE_LAST) begin
+      init_state <= init_state - 5'd1;
     end
+
   end else begin
-    // normal operation, start on ...
+    sd_cmd <= CMD_NOP;  // default: idle
+    drive_dq <= 1'b0;
+
+    sync_d <= {sync_d[2:0], sync};
+
     if (state == STATE_IDLE) begin
       sd_dqm <= {(DATA_WIDTH/8){1'b0}};
 
       if (cs) begin
-        if (refresh) begin
-          sdram_port <= PORTREFRESH;
+        // TODO TN20k: addr 19:9, ba 21:20
+        // MiSTer: a 21:9, ba '00
+        sd_addr <= addr32[RAS_WIDTH+CAS_WIDTH-1:CAS_WIDTH];
+        sd_ba <= addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
+        addr_0 <= addr[0];
 
-        end else begin
-          // RAS phase
-          sdram_port <= PORT1;
+        sd_addr_next[RAS_WIDTH-1:0] <= {RAS_WIDTH{1'b0}};
+        sd_addr_next[10] <= 1'b1;
+        sd_addr_next[CAS_WIDTH-1:0] <= addr32[CAS_WIDTH-1:0];
 
-          // TODO TN20k: addr 19:9, ba 21:20
-          // MiSTer: a 21:9, ba '00
-          sd_addr <= addr32[RAS_WIDTH+CAS_WIDTH-1:CAS_WIDTH];
-          sd_ba <= addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
-          addr_0 <= addr[0];
+        din_l <= din;
 
-          sd_addr_next[RAS_WIDTH-1:0] <= {RAS_WIDTH{1'b0}};
-          sd_addr_next[10] <= 1'b1;
-          sd_addr_next[CAS_WIDTH-1:0] <= addr32[CAS_WIDTH-1:0];
-
-          din_l <= din;
-          we_l <= we;
-          ds_l <= ds;
-        end
       end else if (p2_cs) begin
-        sdram_port <= PORT2;
-
         sd_addr <= p2_addr32[RAS_WIDTH+CAS_WIDTH-1:CAS_WIDTH];
         sd_ba <= p2_addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
         addr_0 <= p2_addr[0];
@@ -251,24 +255,41 @@ always @(posedge clk) begin
         sd_addr_next[CAS_WIDTH-1:0] <= p2_addr32[CAS_WIDTH-1:0];
 
         din_l <= p2_din;
-        we_l <= p2_we;
-        ds_l <= p2_ds;
       end
 
       // start a ram cycle at the falling edge of sync
-      if (sync_d[2] && !sync_d[1]) begin
+      if (sync_d[3] && !sync_d[2]) begin
         state <= 1;
 
-        if ((cs && refresh) || sdram_port == PORTREFRESH)
-          sd_cmd <= CMD_AUTO_REFRESH;
-        else if (cs || p2_cs || sdram_port != PORTIDLE)
+        if (refreshcnt != 0)
+          refreshcnt <= refreshcnt - 1;
+
+        if (cs && !refresh) begin
+          sdram_port <= PORT1;
           sd_cmd <= CMD_ACTIVE;
+
+          we_l <= we;
+          ds_l <= ds;
+
+        end else if (refreshcnt == 0) begin
+          sdram_port <= PORTREFRESH;
+          sd_cmd <= CMD_AUTO_REFRESH;
+
+          refreshcnt <= REFRESHSCHEDULE;
+
+        end else if (p2_cs) begin
+          sdram_port <= PORT2;
+          sd_cmd <= CMD_ACTIVE;
+
+          we_l <= p2_we;
+          ds_l <= p2_ds;
+        end
       end
 
     end else begin
       // always advance state unless we are in idle state
       state <= state + 3'd1;
-      sd_cmd <= CMD_NOP;
+
       // -------------------  cpu/chipset read/write ----------------------
       // CAS phase
       if (state == STATE_CMD_CONT) begin
@@ -289,8 +310,7 @@ always @(posedge clk) begin
 
       end else if (state == STATE_READ) begin
         case (sdram_port)
-          PORTREFRESH:
-            sd_cmd <= CMD_AUTO_REFRESH;
+          PORTREFRESH: ;
           PORT1 :
             dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
           PORT2 : begin
