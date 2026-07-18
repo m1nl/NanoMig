@@ -5,7 +5,7 @@
 // This version synchronizes to an external sync signal which is expected to
 // have exactly half the horizontal refresh rate.
 
-module hdmi 
+module hdmi
 #(
     // The IT content bit indicates that image samples are generated in an ad-hoc
     // manner (e.g. directly from values in a framebuffer, as by a PC video
@@ -25,13 +25,15 @@ module hdmi
 
     // **All parameters below matter ONLY IF you plan on sending auxiliary data (DVI_OUTPUT == 1'b0)**
 
+    parameter int VIDEO_RATE = 28571400,
+
     // As specified in Section 7.3, the minimal audio requirements are met: 16-bit or more L-PCM audio at 32 kHz, 44.1 kHz, or 48 kHz.
     // See Table 7-4 or README.md for an enumeration of sampling frequencies supported by HDMI.
     // Note that sinks may not support rates above 48 kHz.
-    parameter int AUDIO_RATE = 44100,
+    parameter int AUDIO_RATE = 48000,
 
     // Defaults to 16-bit audio, the minmimum supported by HDMI sinks. Can be anywhere from 16-bit to 24-bit.
-    parameter int AUDIO_BIT_WIDTH = 16,
+    parameter int AUDIO_BIT_WIDTH = 24,
 
     // Some HDMI sinks will show the source product description below to users (i.e. in a list of inputs instead of HDMI 1, HDMI 2, etc.).
     // If you care about this, change it below.
@@ -40,75 +42,89 @@ module hdmi
     parameter bit [7:0] SOURCE_DEVICE_INFORMATION = 8'h00 // See README.md or CTA-861-G for the list of valid codes
 )
 (
-    input logic 		      clk_pixel_x5,
-    input logic 		      clk_pixel,
-    input logic 		      clk_audio,
-
-    input logic                       pal_mode,    // 1 for pal timing
-    input logic [1:0]                 screen,      // 0 std, 1 overscan, 2 for some jailbars
-    input logic                       short_frame, // 1 if short frame has been detected
-    input logic                       interlace,   // 1 if interlace has been detected
+    input logic clk_pixel_x5,
+    input logic clk_pixel,
     // synchronous reset back to 0,0
-    input logic 		      reset,
-    input logic [23:0] 		      rgb, 
-    input logic [AUDIO_BIT_WIDTH-1:0] audio_sample_word [1:0],
+    input logic reset,
+
+    input logic       pal_mode,    // 1 for pal timing
+    input logic [1:0] screen,      // 0 std, 1 overscan, 2 for some jailbars
+    input logic       short_frame, // 1 if short frame has been detected
+    input logic       interlace,   // 1 if interlace has been detected
+
+    input logic [23:0] rgb,
+
+    input  logic [AUDIO_BIT_WIDTH-1:0] audio_sample_word_0,
+    input  logic [AUDIO_BIT_WIDTH-1:0] audio_sample_word_1,
+    output logic                       audio_sample_en,
 
     // These outputs go to your HDMI port
-`ifdef TMDS_BY_LOGIC
-    output logic [5:0] tmds,       // 6+2 pins/pmod used for hdmi
-    output logic [1:0] tmds_clock
-`else
-   // These outputs go to your HDMI port
     output logic [2:0] tmds,
     output logic tmds_clock
-`endif    
 );
 
 localparam int NUM_CHANNELS = 3;
+
 logic hsync;
 logic vsync;
 
 logic [1:0] invert;
 
-// PAL/NTSC               start     frame   screen s_start   s_len
-wire [54:0] htiming0n = { 11'd0,   11'd908, 11'd720, 11'd24, 11'd72 }; // normal
-wire [54:0] htiming0o = { 11'd0,   11'd908, 11'd768, 11'd24, 11'd72 }; // overscan
-wire [54:0] htiming0w = { 11'd0,   11'd908, 11'd832, 11'd24, 11'd48 }; // wide
-wire [39:0] vtiming0  = {          10'd626, 10'd576,  10'd5,  10'd5 }; // PAL
-wire [39:0] vtiming1  = {          10'd526, 10'd480,  10'd5,  10'd5 }; // NTSC
-wire [7:0] cea0 = 8'd17; // CEA is HDMI mode in group 1
-wire [7:0] cea1 = 8'd2;
+// PAL / NTSC              start    frame   screen s_start   s_len
+logic [54:0] htiming0n = { 11'd0, 11'd908, 11'd720, 11'd24, 11'd72 }; // normal
+logic [54:0] htiming0o = { 11'd0, 11'd908, 11'd768, 11'd24, 11'd72 }; // overscan
+logic [54:0] htiming0w = { 11'd0, 11'd908, 11'd832, 11'd24, 11'd48 }; // wide
+logic [39:0] vtiming0  = {        10'd626, 10'd576,  10'd5,  10'd5 }; // PAL
+logic [39:0] vtiming1  = {        10'd526, 10'd480,  10'd5,  10'd5 }; // NTSC
 
-wire [54:0] htiming0 = 
-	    (screen==2'd2)?htiming0w:
-	    (screen==2'd1)?htiming0o:
-	    htiming0n;   
-   
-wire [102:0]  timing = pal_mode?{  htiming0, vtiming0, cea0 }:
-                                {  htiming0, vtiming1, cea1 };
+logic [7:0] cea0 = 8'd17; // 720x576p @ 50Hz
+logic [7:0] cea1 = 8'd02; // 720x480p @ 59.94/60Hz
+logic [7:0] cea2 = 8'd21; // 720(1440)x576i @ 50Hz
+logic [7:0] cea3 = 8'd06; // 720(1440)x480i @ 59.94/60Hz
 
-// demux timing parameters   
-wire [10:0] start_x           = timing[102:92];
+logic [54:0] htiming0 = (screen == 2'b10) ? htiming0w :
+                        (screen == 2'b01) ? htiming0o :
+                                            htiming0n;
 
-wire [10:0] frame_width       = timing[91:81];
-wire [10:0] screen_width      = timing[80:70];
-wire [10:0] hsync_pulse_start = timing[69:59];
-wire [10:0] hsync_pulse_size  = timing[58:48];
+logic [102:0]  timing = pal_mode ? { htiming0, vtiming0, interlace ? cea2 : cea0 }:
+                                   { htiming0, vtiming1, interlace ? cea3 : cea1 };
 
-// if we have a short frame, then the scandoubler outputs two lines less
-// if amiga outputs interlaced video, then the scandoubler outputs one line
-// less resulting in an odd overall frame height
-wire [9:0] frame_height       = timing[47:38] - (short_frame ? 10'd2 : 10'd0) - (interlace ? 10'd1 : 10'd0);
-wire [9:0] screen_height      = timing[37:28];
-wire [9:0] vsync_pulse_start  = timing[27:18];
-wire [9:0] vsync_pulse_size   = timing[17: 8];
+logic [10:0] start_x;
+logic [10:0] frame_width;
+logic [10:0] screen_width;
+logic [10:0] hsync_pulse_start;
+logic [10:0] hsync_pulse_size;
 
-wire [7:0] cea                = timing[7:0]; 
-   
-assign invert = 2'b11;
+logic [9:0] frame_height;
+logic [9:0] screen_height;
+logic [9:0] vsync_pulse_start;
+logic [9:0] vsync_pulse_size;
+logic [7:0] video_id_code;
+
+assign start_x = timing[102:92];
+assign invert  = 2'b11;
+
+always_ff @(posedge clk_pixel) begin
+    // demux timing parameters
+    if (reset) begin
+        frame_width       <= timing[ 91:81];
+        screen_width      <= timing[ 80:70];
+        hsync_pulse_start <= timing[ 69:59];
+        hsync_pulse_size  <= timing[ 58:48];
+
+        // if we have a short frame, then the scandoubler outputs two lines less
+        // if amiga outputs interlaced video, then the scandoubler outputs one line
+        // less resulting in an odd overall frame height
+        frame_height      <= timing[47:38] - (short_frame ? 10'd2 : 10'd0) - (interlace ? 10'd1 : 10'd0);
+        screen_height     <= timing[37:28];
+        vsync_pulse_start <= timing[27:18];
+        vsync_pulse_size  <= timing[17: 8];
+        video_id_code     <= timing[ 7: 0];
+    end
+end
 
 reg [10:0] cx;
-reg [9:0] cy;
+reg  [9:0] cy;
 
 always_comb begin
     hsync <= invert[0] ^ (cx >= screen_width + hsync_pulse_start && cx < screen_width + hsync_pulse_start + hsync_pulse_size);
@@ -121,8 +137,6 @@ always_comb begin
     else
         vsync <= invert[1] ^ (cy >= screen_height + vsync_pulse_start && cy < screen_height + vsync_pulse_start + vsync_pulse_size);
 end
-
-localparam real VIDEO_RATE = 32E6;
 
 // Wrap-around pixel position counters indicating the pixel to be generated by the user in THIS clock and sent out in the NEXT clock.
 always_ff @(posedge clk_pixel)
@@ -154,11 +168,6 @@ logic [23:0] video_data = 24'd0;
 logic [5:0] control_data = 6'd0;
 logic [11:0] data_island_data = 12'd0;
 
-`ifdef HDMI_TEST_PATTERN
-// cx is 11 bits, cy is 10 bits
-wire [23:0] rgb_test = { cy[9:6],cx[9:6],  cy[5:0],2'b00,  cx[5:0],2'b00 };
-`endif
-   
 generate
     if (!DVI_OUTPUT)
     begin: true_hdmi_output
@@ -209,7 +218,7 @@ generate
             else
             begin
 	        data_island_guard <= num_packets_alongside > 0 && (
-                    (cx >= screen_width + 12 && cx < screen_width + 14) /* leading guard */ || 
+                    (cx >= screen_width + 12 && cx < screen_width + 14) /* leading guard */ ||
                     (cx >= screen_width + 14 + num_packets_alongside * 32 && cx < screen_width + 14 + num_packets_alongside * 32 + 2) /* trailing guard */
                 );
                 data_island_preamble <= num_packets_alongside > 0 && cx >= screen_width + 4 && cx < screen_width + 12;
@@ -219,22 +228,48 @@ generate
 
         // See Section 5.2.3.4
         logic [23:0] header;
-        logic [55:0] sub [3:0];
+        logic [55:0] sub_0, sub_1, sub_2, sub_3;
         logic video_field_end;
         assign video_field_end = cx == screen_width - 1'b1 && cy == screen_height - 1'b1;
         logic [4:0] packet_pixel_counter;
+
         packet_picker #(
-            .VIDEO_RATE(VIDEO_RATE),
             .IT_CONTENT(IT_CONTENT),
             .AUDIO_RATE(AUDIO_RATE),
             .AUDIO_BIT_WIDTH(AUDIO_BIT_WIDTH),
             .VENDOR_NAME(VENDOR_NAME),
             .PRODUCT_DESCRIPTION(PRODUCT_DESCRIPTION),
             .SOURCE_DEVICE_INFORMATION(SOURCE_DEVICE_INFORMATION)
-        ) packet_picker (.clk_pixel(clk_pixel), .clk_audio(clk_audio), .reset(reset), .cea(cea), .video_field_end(video_field_end), .packet_enable(packet_enable), .packet_pixel_counter(packet_pixel_counter), .audio_sample_word(audio_sample_word), .header(header), .sub(sub));
-        logic [8:0] packet_data;
-        packet_assembler packet_assembler (.clk_pixel(clk_pixel), .reset(reset), .data_island_period(data_island_period), .header(header), .sub(sub), .packet_data(packet_data), .counter(packet_pixel_counter));
+        ) packet_picker_inst (
+            .clk_pixel(clk_pixel),
+            .audio_sample_en(audio_sample_en),
+            .reset(reset),
+            .video_id_code(video_id_code),
+            .video_field_end(video_field_end),
+            .packet_enable(packet_enable),
+            .packet_pixel_counter(packet_pixel_counter),
+            .audio_sample_word_0(audio_sample_word_0),
+            .audio_sample_word_1(audio_sample_word_1),
+            .header(header),
+            .sub_0(sub_0),
+            .sub_1(sub_1),
+            .sub_2(sub_2),
+            .sub_3(sub_3)
+        );
 
+        logic [8:0] packet_data;
+        packet_assembler packet_assembler_inst (
+            .clk_pixel(clk_pixel),
+            .reset(reset),
+            .data_island_period(data_island_period),
+            .header(header),
+            .sub_0(sub_0),
+            .sub_1(sub_1),
+            .sub_2(sub_2),
+            .sub_3(sub_3),
+            .packet_data(packet_data),
+            .counter(packet_pixel_counter)
+        );
 
         always_ff @(posedge clk_pixel)
         begin
@@ -248,16 +283,30 @@ generate
             else
             begin
                 mode <= data_island_guard ? 3'd4 : data_island_period ? 3'd3 : video_guard ? 3'd2 : video_data_period ? 3'd1 : 3'd0;
-`ifdef HDMI_TEST_PATTERN
-                video_data <= rgb_test;
-`else
                 video_data <= rgb;
-`endif
                 control_data <= {{1'b0, data_island_preamble}, {1'b0, video_preamble || data_island_preamble}, {vsync, hsync}}; // ctrl3, ctrl2, ctrl1, ctrl0, vsync, hsync
                 data_island_data[11:4] <= packet_data[8:1];
                 data_island_data[3] <= cx != 0;
                 data_island_data[2] <= packet_data[0];
                 data_island_data[1:0] <= {vsync, hsync};
+            end
+        end
+
+        localparam integer AUDIO_CLOCK_COUNTER_WIDTH = $clog2(VIDEO_RATE + AUDIO_RATE + 1);
+
+        reg [AUDIO_CLOCK_COUNTER_WIDTH-1:0] audio_clock_counter;
+
+        assign audio_sample_en = audio_clock_counter >= VIDEO_RATE[AUDIO_CLOCK_COUNTER_WIDTH-1:0];
+
+        always @(posedge clk_pixel) begin
+            if (reset) begin
+                audio_clock_counter <= 0;
+            end else begin
+                audio_clock_counter <= audio_clock_counter + AUDIO_RATE[AUDIO_CLOCK_COUNTER_WIDTH-1:0];
+
+                if (audio_sample_en)
+                    audio_clock_counter <= audio_clock_counter + AUDIO_RATE[AUDIO_CLOCK_COUNTER_WIDTH-1:0] -
+                        VIDEO_RATE[AUDIO_CLOCK_COUNTER_WIDTH-1:0];
             end
         end
     end
@@ -274,11 +323,7 @@ generate
             else
             begin
                 mode <= video_data_period ? 3'd1 : 3'd0;
-`ifdef HDMI_TEST_PATTERN
-                video_data <= rgb_test;
-`else
                 video_data <= rgb;
-`endif
                 control_data <= {4'b0000, {vsync, hsync}}; // ctrl3, ctrl2, ctrl1, ctrl0, vsync, hsync
             end
         end
@@ -292,10 +337,28 @@ generate
     // TMDS code production.
     for (i = 0; i < NUM_CHANNELS; i++)
     begin: tmds_gen
-        tmds_channel #(.CN(i)) tmds_channel (.clk_pixel(clk_pixel), .video_data(video_data[i*8+7:i*8]), .data_island_data(data_island_data[i*4+3:i*4]), .control_data(control_data[i*2+1:i*2]), .mode(mode), .tmds(tmds_internal[i]));
+        tmds_channel #(
+            .CN(i)
+        ) tmds_channel (
+            .clk_pixel(clk_pixel),
+            .video_data(video_data[i*8+7:i*8]),
+            .data_island_data(data_island_data[i*4+3:i*4]),
+            .control_data(control_data[i*2+1:i*2]),
+            .mode(mode),
+            .tmds(tmds_internal[i])
+        );
     end
 endgenerate
 
-serializer #(.NUM_CHANNELS(NUM_CHANNELS)) serializer(.clk_pixel(clk_pixel), .clk_pixel_x5(clk_pixel_x5), .reset(reset), .tmds_internal(tmds_internal), .tmds(tmds), .tmds_clock(tmds_clock));
+serializer #(
+    .NUM_CHANNELS(NUM_CHANNELS)
+) serializer (
+    .clk_pixel(clk_pixel),
+    .clk_pixel_x5(clk_pixel_x5),
+    .reset(reset),
+    .tmds_internal(tmds_internal),
+    .tmds(tmds),
+    .tmds_clock(tmds_clock)
+);
 
 endmodule

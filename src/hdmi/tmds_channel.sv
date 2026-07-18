@@ -13,7 +13,7 @@ module tmds_channel
     input logic [3:0] data_island_data,
     input logic [1:0] control_data,
     input logic [2:0] mode,  // Mode select (0 = control, 1 = video, 2 = video guard, 3 = island, 4 = island guard)
-    output logic [9:0] tmds
+    output logic [9:0] tmds = 10'b1101010100
 );
 
 // See Section 5.4.4.1
@@ -163,6 +163,7 @@ begin
         3'd2: tmds <= video_guard_band;
         3'd3: tmds <= terc4_coding;
         3'd4: tmds <= data_guard_band;
+        default: ;
     endcase
 end
 

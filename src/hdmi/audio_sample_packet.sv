@@ -5,7 +5,7 @@
 
 // See Section 5.3.4
 // 2-channel L-PCM or IEC 61937 audio in IEC 60958 frames with consumer grade IEC 60958-3.
-module audio_sample_packet 
+module audio_sample_packet
 #(
     // A thorough explanation of the below parameters can be found in IEC 60958-3 5.2, 5.3.
 
@@ -50,17 +50,66 @@ module audio_sample_packet
 (
     input logic [7:0] frame_counter,
     // See IEC 60958-1 4.4 and Annex A. 0 indicates the signal is suitable for decoding to an analog audio signal.
-    input logic [1:0] valid_bit [3:0],
+    input logic [1:0] valid_bit_0,
+    input logic [1:0] valid_bit_1,
+    input logic [1:0] valid_bit_2,
+    input logic [1:0] valid_bit_3,
+
     // See IEC 60958-3 Section 6. 0 indicates that no user data is being sent
-    input logic [1:0] user_data_bit [3:0],
-    input logic [23:0] audio_sample_word [3:0] [1:0],
+    input logic [1:0] user_data_bit_0,
+    input logic [1:0] user_data_bit_1,
+    input logic [1:0] user_data_bit_2,
+    input logic [1:0] user_data_bit_3,
+    input logic [23:0] audio_sample_word_0_0,
+    input logic [23:0] audio_sample_word_1_0,
+    input logic [23:0] audio_sample_word_2_0,
+    input logic [23:0] audio_sample_word_3_0,
+    input logic [23:0] audio_sample_word_0_1,
+    input logic [23:0] audio_sample_word_1_1,
+    input logic [23:0] audio_sample_word_2_1,
+    input logic [23:0] audio_sample_word_3_1,
     input logic [3:0] audio_sample_word_present,
     output logic [23:0] header,
-    output logic [55:0] sub [3:0]
+    output logic [55:0] sub_0,
+    output logic [55:0] sub_1,
+    output logic [55:0] sub_2,
+    output logic [55:0] sub_3
 );
 
+logic [55:0] sub [3:0];
+
+assign sub_0 = sub[0];
+assign sub_1 = sub[1];
+assign sub_2 = sub[2];
+assign sub_3 = sub[3];
+
+logic [1:0] valid_bit [3:0];
+
+assign valid_bit[0] = valid_bit_0;
+assign valid_bit[1] = valid_bit_1;
+assign valid_bit[2] = valid_bit_2;
+assign valid_bit[3] = valid_bit_3;
+
+logic [1:0] user_data_bit [3:0];
+
+assign user_data_bit[0] = user_data_bit_0;
+assign user_data_bit[1] = user_data_bit_1;
+assign user_data_bit[2] = user_data_bit_2;
+assign user_data_bit[3] = user_data_bit_3;
+
+logic [23:0] audio_sample_word [3:0] [1:0];
+
+assign audio_sample_word[0][0] = audio_sample_word_0_0;
+assign audio_sample_word[1][0] = audio_sample_word_1_0;
+assign audio_sample_word[2][0] = audio_sample_word_2_0;
+assign audio_sample_word[3][0] = audio_sample_word_3_0;
+assign audio_sample_word[0][1] = audio_sample_word_0_1;
+assign audio_sample_word[1][1] = audio_sample_word_1_1;
+assign audio_sample_word[2][1] = audio_sample_word_2_1;
+assign audio_sample_word[3][1] = audio_sample_word_3_1;
+
 // Left/right channel for stereo audio
-logic [3:0] CHANNEL_LEFT = 4'd1;
+logic [3:0] CHANNEL_LEFT  = 4'd1;
 logic [3:0] CHANNEL_RIGHT = 4'd2;
 
 localparam bit [7:0] CHANNEL_STATUS_LENGTH = 8'd192;
@@ -97,11 +146,7 @@ generate
             if (audio_sample_word_present[i])
                 sub[i] = {{parity_bit[i][1], channel_status_right[aligned_frame_counter[i]], user_data_bit[i][1], valid_bit[i][1], parity_bit[i][0], channel_status_left[aligned_frame_counter[i]], user_data_bit[i][0], valid_bit[i][0]}, audio_sample_word[i][1], audio_sample_word[i][0]};
             else
-            `ifdef MODEL_TECH
-                sub[i] = 56'd0;
-            `else
-                sub[i] = 56'dx;
-            `endif
+                sub[i] = 56'dX;
         end
     end
 endgenerate

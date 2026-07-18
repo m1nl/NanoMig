@@ -12,8 +12,18 @@ module audio_info_frame
 )
 (
     output logic [23:0] header,
-    output logic [55:0] sub [3:0]
+    output logic [55:0] sub_0,
+    output logic [55:0] sub_1,
+    output logic [55:0] sub_2,
+    output logic [55:0] sub_3
 );
+
+logic [55:0] sub [3:0];
+
+assign sub_0 = sub[0];
+assign sub_1 = sub[1];
+assign sub_2 = sub[2];
+assign sub_3 = sub[3];
 
 // NOTE—HDMI requires the coding type, sample size and sample frequency fields to be set to 0 ("Refer to Stream Header") as these items are carried in the audio stream
 localparam bit [3:0] AUDIO_CODING_TYPE = 4'd0; // Refer to stream header.

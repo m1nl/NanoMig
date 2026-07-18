@@ -6,9 +6,12 @@ module packet_assembler (
     input logic reset,
     input logic data_island_period,
     input logic [23:0] header, // See Table 5-8 Packet Types
-    input logic [55:0] sub [3:0],
+    input logic [55:0] sub_0,
+    input logic [55:0] sub_1,
+    input logic [55:0] sub_2,
+    input logic [55:0] sub_3,
     output logic [8:0] packet_data, // See Figure 5-4 Data Island Packet and ECC Structure
-    output logic [4:0] counter
+    output logic [4:0] counter = 5'd0
 );
 
 // 32 pixel wrap-around counter. See Section 5.2.3.4 for further information.
@@ -19,12 +22,26 @@ begin
     else if (data_island_period)
         counter <= counter + 5'd1;
 end
+// Convert sub into SystemVerilog array
+wire [55:0] sub [3:0];
+assign sub[0] = sub_0;
+assign sub[1] = sub_1;
+assign sub[2] = sub_2;
+assign sub[3] = sub_3;
+
 // BCH packets 0 to 3 are transferred two bits at a time, see Section 5.2.3.4 for further information.
 wire [5:0] counter_t2 = {counter, 1'b0};
 wire [5:0] counter_t2_p1 = {counter, 1'b1};
 
 // Initialize parity bits to 0
-logic [7:0] parity [4:0] = '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0};
+logic [7:0] parity [4:0];
+initial begin
+    parity[0] = 0;
+    parity[1] = 0;
+    parity[2] = 0;
+    parity[3] = 0;
+    parity[4] = 0;
+end
 
 wire [63:0] bch [3:0];
 assign bch[0] = {parity[0], sub[0]};
@@ -66,21 +83,38 @@ endgenerate
 
 always_ff @(posedge clk_pixel)
 begin
-    if (reset)
-        parity <= '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0};
-    else if (data_island_period)
+    if (reset) begin
+        parity[0] <= 0;
+        parity[1] <= 0;
+        parity[2] <= 0;
+        parity[3] <= 0;
+        parity[4] <= 0;
+   end else if (data_island_period)
     begin
         if (counter < 5'd28) // Compute ECC only on subpacket data, not on itself
         begin
-            parity[3:0] <= parity_next_next;
+            parity[3] <= parity_next_next[3];
+            parity[2] <= parity_next_next[2];
+            parity[1] <= parity_next_next[1];
+            parity[0] <= parity_next_next[0];
             if (counter < 5'd24) // Header only has 24 bits, whereas subpackets have 56 and 56 / 2 = 28.
                 parity[4] <= parity_next[4];
         end
-        else if (counter == 5'd31)
-            parity <= '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0}; // Reset ECC for next packet
+        else if (counter == 5'd31) begin
+            parity[0] <= 0; // Reset ECC for next packet
+            parity[1] <= 0;
+            parity[2] <= 0;
+            parity[3] <= 0;
+            parity[4] <= 0;
+        end
     end
-    else
-        parity <= '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0};
+    else begin
+        parity[0] <= 0;
+        parity[1] <= 0;
+        parity[2] <= 0;
+        parity[3] <= 0;
+        parity[4] <= 0;
+    end
 end
 
 endmodule

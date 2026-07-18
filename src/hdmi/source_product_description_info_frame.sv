@@ -10,8 +10,18 @@ module source_product_description_info_frame
 )
 (
     output logic [23:0] header,
-    output logic [55:0] sub [3:0]
+    output logic [55:0] sub_0,
+    output logic [55:0] sub_1,
+    output logic [55:0] sub_2,
+    output logic [55:0] sub_3
 );
+
+logic [55:0] sub [3:0];
+
+assign sub_0 = sub[0];
+assign sub_1 = sub[1];
+assign sub_2 = sub[2];
+assign sub_3 = sub[3];
 
 localparam bit [4:0] LENGTH = 5'd25;
 localparam bit [7:0] VERSION = 8'd1;
