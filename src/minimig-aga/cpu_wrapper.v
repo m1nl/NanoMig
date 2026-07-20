@@ -91,7 +91,7 @@ module cpu_wrapper
 	output reg [31:0] nmi_addr
 );
 
-wire cpu_req = (cpustate != 1) && (!skip_fetch);
+wire cpu_req = cpustate != 1;
 
 assign ramsel       = cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
 assign ramshared    = sel_dd;
@@ -455,22 +455,23 @@ always @(posedge clk) begin
 	end
 end
 
-reg       chipreq;
+wire chipreq = cpu_req & ~ramsel & ~fastchip_selack;
+
 always @(posedge clk) begin
-	chipreq <= cpu_req & ~ramsel & ~fastchip_selack;
+//	chipreq <= cpu_req & ~ramsel & ~fastchip_selack;
 	cpu_ipl <= ipl_i;
 end
 
-reg ph1n, ph2n;
-always @(posedge clk) begin
-	ph1n <= ph1;
-	ph2n <= ph2;
-end
+//reg ph1n, ph2n;
+//always @(posedge clk) begin
+//	ph1n <= ph1;
+//	ph2n <= ph2;
+//end
 
 reg [15:0] chipdout_i;
 reg  [2:0] ipl_i;
 reg        c_as,c_rw,c_uds,c_lds;
-always @(negedge clk, negedge reset) begin
+always @(posedge clk, negedge reset) begin
 	reg [1:0] stage;
 	reg waitm;
 	reg ready;
@@ -484,13 +485,13 @@ always @(negedge clk, negedge reset) begin
 		ready <= 0;
 	end
 	else begin
-		if (ph2n) begin
+		if (ph2) begin
 			waitm <= chip_dtack;
 			if(~stage[0]) ipl_i <= chip_ipl;
 		end
 
 		chipready <= 0;
-		if (ph1n) begin
+		if (ph1) begin
 			chipready <= ready;
 			ready <= 0;
 			case (stage)

@@ -145,10 +145,10 @@ always @(posedge clk_sys) begin
       cpu_ph1 <= 1'b0;
       cpu_ph2 <= 1'b0;
    end else begin 
-//      cpu_ph1 <= !c1 &&  c3;  // on negedge clk_sys
-//      cpu_ph2 <=  c1 && !c3;  // -"-
-      cpu_ph1 <=   c1 &&  c3;
-      cpu_ph2 <=  !c1 && !c3;
+      cpu_ph1 <= !c1 &&  c3;  // on negedge clk_sys
+      cpu_ph2 <=  c1 && !c3;  // -"-
+//      cpu_ph1 <=   c1 &&  c3;
+//      cpu_ph2 <=  !c1 && !c3;
    end
 end
 
@@ -221,16 +221,16 @@ always @(posedge clk_sys)
   ram_cs_triggerD <= ram_cs_trigger;   
    
 // neg/clk7
-    `ifdef ENABLE_TG68K  
-        reg frr_d=1'b0;
-        always @(posedge clk_sys) begin
-        ram_ready<=1'b0;
-        if(clk7_en) begin
-            if(fastram_ready!=frr_d)
-                ram_ready<=1'b1;
-            frr_d <= fastram_ready;
-        end
-	`else
+//    `ifdef ENABLE_TG68K  
+//        reg frr_d=1'b0;
+//        always @(posedge clk_sys) begin
+//        ram_ready<=1'b0;
+//        if(clk7_en) begin
+//            if(fastram_ready!=frr_d)
+//                ram_ready<=1'b1;
+//            frr_d <= fastram_ready;
+//        end
+//	`else
 		reg frr_d=1'b0;
         always @(posedge clk_sys) begin
         if(!cpu_rst)
@@ -240,7 +240,7 @@ always @(posedge clk_sys)
         else if(fastram_ready!=frr_d)
             ram_ready<=1'b1;
         frr_d <= fastram_ready;	
-    `endif
+//    `endif
 end
    
 cpu_wrapper cpu_wrapper
@@ -291,18 +291,18 @@ cpu_wrapper cpu_wrapper
 	.nmi_addr     (cpu_nmi_addr    )
 );
    
-`ifdef ENABLE_TG68K
-	reg ram_sel_d;
-	reg ram_ready_d;
-	always @(posedge clk_sys) begin
-		ram_ready_d <= ram_ready;
-	if( clk7n_en) begin
-			if(ram_sel && !ram_ready_d)
-				fastram_sel <= 1'b1;
-		end
-	if( fastram_ready != frr_d ) fastram_sel <= 1'b0;   
-	end
-`else
+//`ifdef ENABLE_TG68K
+//	reg ram_sel_d;
+//	reg ram_ready_d;
+//	always @(posedge clk_sys) begin
+//		ram_ready_d <= ram_ready;
+//	if( clk7n_en) begin
+//			if(ram_sel && !ram_ready_d)
+//				fastram_sel <= 1'b1;
+//		end
+//	if( fastram_ready != frr_d ) fastram_sel <= 1'b0;   
+//	end
+//`else
 	reg ram_sel_d;
 	always @(posedge clk_sys) begin
 	if( cpu_ph2) begin
@@ -312,7 +312,7 @@ cpu_wrapper cpu_wrapper
 		end
 	if( fastram_ready != frr_d ) fastram_sel <= 1'b0;   
 	end			
-`endif	
+//`endif	
 
 assign fastram_addr = ram_addr;
 assign fastram_lds = ram_lds;

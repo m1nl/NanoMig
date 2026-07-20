@@ -53,7 +53,7 @@ module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=1, RAS_WIDTH=13, CAS_WIDTH=
     output reg [15:0] dout,
     input [21:0]      addr,    // 22 bit word address for 8MB
     input [1:0]      ds,      // upper/lower data strobe
-    input          cs,      // cpu/chipset requests read/wrie
+    input          cs,      // cpu/chipset requests read/write
     input          we,      // cpu/chipset requests write
 
     input [15:0]      p2_din,  // data input from chipset/cpu
@@ -178,7 +178,7 @@ localparam PORTIDLE=2'b11;
 
 reg [1:0] sdram_port;
 
-reg [3:0] sync_d;
+reg [1:0] sync_d;
 
 // Refresh interval; 60ms
 // With 13 bit row address we need to visit 8192 rows every 60ms
@@ -227,7 +227,7 @@ always @(posedge clk) begin
     sd_cmd <= CMD_NOP;  // default: idle
     drive_dq <= 1'b0;
 
-    sync_d <= {sync_d[2:0], sync};
+    sync_d <= {sync_d[0], sync};
 
     if (state == STATE_IDLE) begin
       sd_dqm <= {(DATA_WIDTH/8){1'b0}};
@@ -258,7 +258,7 @@ always @(posedge clk) begin
       end
 
       // start a ram cycle at the falling edge of sync
-      if (sync_d[3] && !sync_d[2]) begin
+      if (sync_d[1] && !sync_d[0]) begin
         state <= 1;
 
         if (refreshcnt != 0)
@@ -308,7 +308,7 @@ always @(posedge clk) begin
         to_ram <= {(DATA_WIDTH/16){din_l}};
         drive_dq <= we_l;
 
-      end else if (state == STATE_READ) begin
+      end else if (state == STATE_READ && !we_l) begin
         case (sdram_port)
           PORTREFRESH: ;
           PORT1 :

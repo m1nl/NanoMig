@@ -10,7 +10,7 @@
 
 `define LATTICE
 // `define INFER_DPRAM
-// `define ENABLE_TG68K
+`define ENABLE_TG68K
 // `define DISABLE_IDE       // when using inferred ram, this exceeds the chip
 // `define HDMI_TEST_PATTERN  // display static test pattern on HDMI instead of amiga video
 // `define ENABLE_INT_ROM     // enable 2k internal test rom in nanomig.v
@@ -23,6 +23,7 @@ module top(
   input		user_n,
 
   output [4:0]	leds,
+  output usb_tx,
 
   // spi flash interface
   output	mspi_cs,
@@ -104,19 +105,42 @@ wire clk_pixel_x5;
 wire pll_lock;
 wire clk_28m;
 wire clk_85m;
-wire clk_85m_shifted;
+wire clk_28m_shifted;
 wire clk_pixel;
+
+assign clk_28m = clk_pixel;
 
 pll_142m pll_142m (
 	.CLKI( clk ),               // 50Mhz in
 	.CLKOP( clk_pixel_x5),      // 140 Mhz
 	.CLKOS( clk_85m ),          // 84 Mhz
-	.CLKOS2( clk_85m_shifted ), // 84 Mhz shifted by 216°
+	.CLKOS2( clk_28m_shifted ), // 84 Mhz shifted by 216°
 	.CLKOS3( clk_pixel ),       // 28 Mhz
     .LOCK( pll_lock )
 );
 
-assign clk_28m = clk_pixel;
+reg [2:0] rst_sync_28m /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */ /* synthesis syn_preserve=1 */;
+reg [2:0] rst_sync_85m /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */ /* synthesis syn_preserve=1 */;
+
+always @(posedge clk_28m or negedge pll_lock) begin
+  if (!pll_lock)
+    rst_sync_28m <= 3'b000;
+  else
+    rst_sync_28m <= {rst_sync_28m[1:0], 1'b1};
+end
+
+always @(posedge clk_85m or negedge pll_lock) begin
+  if (!pll_lock)
+    rst_sync_85m <= 3'b000;
+  else
+    rst_sync_85m <= {rst_sync_85m[1:0], 1'b1};
+end
+
+wire rst_28m   = ~rst_sync_28m[2];
+wire rst_28m_n = rst_sync_28m[2];
+
+wire rst_85m   = ~rst_sync_85m[2];
+wire rst_85m_n = rst_sync_85m[2];
 
 wire	clk7_en;
 wire	clk7n_en;
@@ -145,9 +169,10 @@ wire       osd_stereo_mix;      // 0=off, 1=on
 wire	   rom_download_in_progress;
 
 // generate a reset for some time after rom has been initialized
-reg [15:0] reset_cnt;
+reg [15:0] reset_cnt = 16'hffff;
+
 always @(posedge clk_28m) begin
-    if (!rom_done || !reset_n || osd_reset || kbd_reset || rom_download_in_progress)
+    if (!rom_done || !reset_n || rst_28m) // || osd_reset || kbd_reset || rom_download_in_progress || rst_28m)
       reset_cnt <= 16'hffff;
     else if (reset_cnt != 0)
       reset_cnt <= reset_cnt - 16'd1;
@@ -155,6 +180,7 @@ end
 
 // this is the reset that goes into the nanomig itself
 wire cpu_reset = reset_cnt != 0;
+assign leds[4] = cpu_reset;
 
 wire sdram_ready;
 
@@ -200,7 +226,7 @@ wire [7:0] sdc_data_out;
 
 mcu_spi mcu (
 	 .clk(clk_28m),
-	 .reset(!pll_lock),
+	 .reset(rst_28m),
 
 	 // SPI interface to FPGA Companion
      .spi_io_ss ( spi_io_ss ),
@@ -247,7 +273,7 @@ reg         sd_ready;
 // state machine handling kickstart upload from Companion
 reg [2:0]	 kick_upload_state = 3'd0;
 reg		     kick_is_256k;
-assign	     rom_download_in_progress = kick_upload_state >= 3'd1 && kick_upload_state <= 3'd3;
+assign	     rom_download_in_progress = 0; //kick_upload_state >= 3'd1 && kick_upload_state <= 3'd3;
 
 wire		 rom_data_available;
 wire [7:0]	 rom_data;
@@ -268,8 +294,8 @@ wire [18:1]	 rom_data_addr_max = ((kick_is_256k?'d262144:'d524288)/2)-1;
 
 // The ROM uploader receives ROM data from the Companion and writes it into
 // the area of sdram that is reserved for kickstart rom
-always @(posedge clk_28m, negedge pll_lock) begin
-   if(!pll_lock) begin
+always @(posedge clk_28m) begin
+   if(rst_28m) begin
       kick_upload_state <= 3'd0;
       rom_data_word_we <= 1'b0;
 	  kick_is_256k <= 1'b0;
@@ -346,7 +372,7 @@ sd_card #(
     .CLK_DIV(3'd0),                  // for 28 Mhz clock
     .IMAGE_FIFO_BITS(9)              // ROM transfer fifo size = 512
 ) sd_card (
-    .rstn(pll_lock),                 // rstn active-low, 1:working, 0:reset
+    .rstn(rst_28m_n),                // rstn active-low, 1:working, 0:reset
     .clk(clk_28m),                   // clock
 
     // SD card signals
@@ -400,7 +426,7 @@ wire       kbd_reset;      // keyboard reset (Ctrl+LAmiga+RAmiga)
 
 hid hid (
         .clk(clk_28m),
-        .reset(!pll_lock),
+        .reset(rst_28m),
 
          // interface to receive user data from MCU (mouse, kbd, ...)
         .data_in_strobe(mcu_hid_strobe),
@@ -427,7 +453,7 @@ hid hid (
 
 sysctrl sysctrl (
         .clk(clk_28m),
-        .reset(!pll_lock),
+        .reset(rst_28m),
 
          // interface to send and receive generic system control
         .data_in_strobe(mcu_sys_strobe),
@@ -476,7 +502,7 @@ wire [5:0] video_blue;
 
 osd_u8g2 osd_u8g2 (
         .clk(clk_28m),
-        .reset(!pll_lock),
+        .reset(rst_28m),
 
         .data_in_strobe(mcu_osd_strobe),
         .data_in_start(mcu_start),
@@ -577,7 +603,7 @@ nanomig nanomig
 (
  .clk_sys(clk_28m),
  .reset(cpu_reset),
- .por(!pll_lock || !sdram_ready),
+ .por(rst_28m),
 
  .clk7_en(clk7_en),
  .clk7n_en(clk7n_en),
@@ -654,35 +680,31 @@ nanomig nanomig
  .fastram_ready(fastram_ready)
 );
 
-assign leds[4] = fastram_sel;
+//assign leds[4] = fastram_sel;
 
 wire           flash_ready;
 wire           mem_ready = sdram_ready && flash_ready;
 
-reg            start_rom_copy;
-reg            mem_ready_D;
+reg            mem_ready_d1;
+reg            mem_ready_d2;
 
 // generate a start_rom_copy signal once flash and SDRAM are initialized
-always @(posedge clk_85m or negedge pll_lock) begin
-   if(!pll_lock) begin
-      start_rom_copy <= 1'b0;
-      mem_ready_D <= 1'b0;
+always @(posedge clk_28m) begin
+   if (rst_28m) begin
+      mem_ready_d1 <= 1'b0;
+      mem_ready_d2 <= 1'b0;
 
    end else begin
-      mem_ready_D <= mem_ready;
-      start_rom_copy <= 1'b0;
-
-      if(mem_ready && !mem_ready_D)
-          start_rom_copy <= 1'b1;
+      mem_ready_d1 <= mem_ready;
+      mem_ready_d2 <= mem_ready_d1;
    end
 end
 
 /* -------------- state machine copying data from flash to sdram ---------------- */
-reg [21:0]  flash_addr;
+reg [21:0]  flash_addr = 22'h200000;
 wire [15:0] flash_dout;
-reg [15:0]  flash_doutD;
 reg		    flash_cs;
-reg [31:0]  word_count;
+reg [31:0]  word_count = 32'h40000;
 reg [4:0]   state;
 wire        flash_data_strobe;
 wire        flash_busy;
@@ -690,61 +712,142 @@ wire        flash_busy;
 // once the copy counter has run to zero, all rom has been copied
 wire		rom_done = (word_count == 0);
 
-assign leds[3] = !rom_done || rom_download_in_progress;
+assign leds[3] = (!rom_done || rom_download_in_progress);
 
 reg [17:0]  flash_ram_addr;
 reg         flash_ram_write;
 reg         flash_ram_strobe;
-reg [5:0]   flash_cnt;
-reg [5:0]   refresh_cnt;
 
-always @(posedge clk_85m or negedge mem_ready) begin
-    if(!mem_ready) begin
-       flash_addr <= 22'h200000;          // 4MB flash offset (word address)
-       flash_ram_addr <= 18'h0;           // write into 512k sdram segment used for kick rom
-       word_count <= 22'h40001;           // 512k bytes ROM data = 256k words
+reg uart_send;
+reg [7:0] uart_data;
+reg uart_busy;
 
-       state <= 3'h0;
-       flash_ram_write <= 1'b0;
-       flash_ram_strobe <= 1'b0;
-       flash_cs <= 1'b0;
-       flash_cnt <= 6'd0;
+uart_tx #(
+    .CLK(28333333),
+    .BAUD_RATE(115200),
+    .BITS(8)
+) uart_tx_0 (
+    .clk(clk_28m),
+    .send(uart_send),
+    .data(uart_data),
+    .tx(usb_tx),
+    .busy(uart_busy)
+);
 
-    end else begin
-        flash_ram_strobe <= 1'b0;
+always @(posedge clk_28m) begin
+  if(rst_28m || !mem_ready_d2 || !reset_n) begin
+    flash_addr <= 22'h200000;          // 4MB flash offset (word address)
+    flash_ram_addr <= 18'h0;           // write into 512k sdram segment used for kick rom
+    word_count <= 32'h40000;           // 512k bytes ROM data = 256k words
 
-        if((start_rom_copy || state == 23) && (word_count != 0)) begin
-            flash_cs <= 1'b1;
-            flash_cnt <= 6'd45; // >= 30 @ 32MHz -- AMR, increase to 45 @ 85.5MHz
-        end else begin
-            if(flash_cnt != 0) flash_cnt <= flash_cnt - 6'd1;
-            if(flash_busy)     flash_cs <= 1'b0;
+    state <= 5'h0;
+    flash_ram_write <= 1'b0;
+    flash_ram_strobe <= 1'b0;
+    flash_cs <= 1'b0;
 
-            // ... static timing with fixed counter
-            if(flash_cnt == 6'd1) begin
-               state <= 1;
-               flash_addr <= flash_addr + 22'd1;
-               word_count <= word_count - 22'd1;
-
-               if ((flash_addr == 22'h2000aa || flash_addr == 22'h2200aa) && flash_dout == 16'h6678)
-				 // transform bne.b to bra.b in Kickstart ROM 1.2/1.3 @ $f80154 (mirror) and $fc0154
-				 // this forces memory detection on every reset
-				 flash_doutD <= flash_dout & 16'hf0ff;
-               else
-                 // we don't necessarily need to latch the data. But latching it here
-                 // allows to exactly determine the real access time by adjusting flash_cnt
-                 // to the lowest value that gives a stable image
-                 flash_doutD <= flash_dout;
-            end
+  end else begin
+    case (state)
+      0: begin
+        state <= 1;
+      end
+      1: begin
+        if (word_count != 0) begin
+          flash_cs <= 1;
+          state <= 2;
         end
-
-        // advance ram write state
-        if(state != 0)  state <= state + 3'd1;
-        if(state == 3)  flash_ram_write <= 1'b1;
-        if(state == 4)  flash_ram_strobe <= 1'b1;
-        if(state == 18) flash_ram_write <= 1'b0;
-        if(state == 21) flash_ram_addr <= flash_ram_addr + 18'd1;
-    end
+      end
+      2: begin
+        if (flash_busy) begin
+          flash_cs <= 0;
+          state <= 3;
+        end
+      end
+      3: begin
+        if (!flash_busy && clk7_en) begin
+          flash_ram_write <= 1;
+          flash_ram_strobe <= 1;
+          state <= 4;
+        end
+      end
+      4: begin
+        if (clk7n_en) begin
+          flash_ram_write <= 0;
+          flash_ram_strobe <= 0;
+          flash_ram_addr <= flash_ram_addr + 1;
+          flash_addr <= flash_addr + 1;
+          word_count <= word_count - 1;
+          state <= 1;
+        end
+      end
+//      5: begin
+//        if (!uart_busy) begin
+//          uart_data <= flash_dout[15:8];
+//          uart_send <= 1;
+//          state <= 6;
+//        end
+//      end
+//      6: begin
+//        if (uart_busy) begin
+//          uart_send <= 0;
+//          state <= 7;
+//        end
+//      end
+//      7: begin
+//        if (!uart_busy) begin
+//          uart_data <= flash_dout[7:0];
+//          uart_send <= 1;
+//          state <= 8;
+//        end
+//      end
+//      8: begin
+//        if (uart_busy) begin
+//          uart_send <= 0;
+//          state <= 9;
+//        end
+//      end
+//      9: begin
+//        if (clk7_en) begin
+//          flash_ram_strobe <= 1;
+//          state <= 10;
+//        end
+//      end
+//      10: begin
+//        if (clk7n_en) begin
+//          flash_ram_strobe <= 0;
+//          flash_ram_addr <= flash_ram_addr + 1;
+//          flash_addr <= flash_addr + 1;
+//          word_count <= word_count - 1;
+//          state <= 11;
+//        end
+//      end
+//      11: begin
+//        if (!uart_busy && clk7_en) begin
+//          uart_data <= sdram_dout[15:8];
+//          uart_send <= 1;
+//          state <= 12;
+//        end
+//      end
+//      12: begin
+//        if (uart_busy) begin
+//          uart_send <= 0;
+//          state <= 13;
+//        end
+//      end
+//      13: begin
+//        if (!uart_busy) begin
+//          uart_data <= sdram_dout[7:0];
+//          uart_send <= 1;
+//          state <= 14;
+//        end
+//      end
+//      14: begin
+//        if (uart_busy) begin
+//          uart_send <= 0;
+//          state <= 1;
+//        end
+//      end
+    endcase
+  end
 end
 
 // ----------------------------- SDRAM ---------------------------------
@@ -761,13 +864,11 @@ wire	    sdram_rw      = !ram_we_n;
 //  3. flash rom download to ram initiated by the companion
 
 wire		sdram_cs      =
-			!rom_done?flash_ram_write:
+			!rom_done?flash_ram_strobe:
 			rom_download_in_progress?rom_data_word_we:
 			sdram_access;
 
-wire        sdram_sync    =
-			!rom_done?flash_ram_strobe:
-			clk7_en;  // rom_download also runs in sync with clk7/cyc
+wire        sdram_sync    = clk7_en;
 
 wire		sdram_refresh =
 			!rom_done?1'b0:
@@ -775,7 +876,7 @@ wire		sdram_refresh =
 			ram_refresh;
 
 wire [15:0] sdram_din     =
-			!rom_done?flash_doutD:                   // initial rom download from flash
+			!rom_done?flash_dout:                    // initial rom download from flash
 			rom_download_in_progress?rom_data_word:  // rom download from sd card
 			ram_dout;                                // regular operation
 
@@ -802,10 +903,19 @@ wire [21:0] sdram_addr    =
 			minimig_is_accessing_256k_rom?{ram_a[22:19],1'b0,ram_a[17:1]}:  // regular rom access into 256k kickstart
 			ram_a[22:1];                                        // regular operation
 
-assign O_sdram_clk = clk_85m_shifted;
+ODDRX1F oddrx1f_sdram (
+  .D0(1'b0),
+  .D1(1'b1),
+  .Q(O_sdram_clk),
+  .SCLK(clk_85m),
+  .RST(1'b0)
+);
+//assign O_sdram_clk = clk_85m_shifted;
 assign O_sdram_cke = 1'b1;  // clock enable
 
-sdram sdram (
+sdram #(
+//    .RASCAS_DELAY(2)
+) sdram (
 	.sd_data    ( IO_sdram_dq   ), // 14 bit bidirectional data bus
 	.sd_addr    ( O_sdram_addr  ), // 13 bit multiplexed address bus
 	.sd_dqm     ( O_sdram_dqm   ), // two byte masks
@@ -817,7 +927,7 @@ sdram sdram (
 
 	// cpu/chipset interface
 	.clk        ( clk_85m       ), // sdram is accessed at 85MHz
-	.reset_n    ( pll_lock      ), // init signal after FPGA config to initialize RAM
+	.reset_n    ( rst_85m_n     ), // init signal after FPGA config to initialize RAM
 
 	.ready      ( sdram_ready   ), // ram is ready and has been initialized
 	.sync       ( sdram_sync    ), // rising edge of sync is begin of a memory cycle
@@ -843,14 +953,14 @@ sdram sdram (
 // from flash to sdram
 
 USRMCLK usrmclk (
- .USRMCLKI(clk_85m_shifted),
+ .USRMCLKI(clk_28m_shifted),
  .USRMCLKTS(mspi_clk_ts)   // 0 = drive clock, this cannot be a constant!
 )/* synthesis syn_noprune=1 */;
 
 
 flash flash (
-    .clk       ( clk_85m     ),
-    .resetn    ( pll_lock    ),
+    .clk       ( clk_28m     ),
+    .resetn    ( rst_28m_n   ),
     .ready     ( flash_ready ),
 
     .address   ( flash_addr  ),

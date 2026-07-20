@@ -20,7 +20,7 @@ reg [1:0] clk7_cnt = 2'b10;
 reg       clk7_en_reg = 1'b1;
 reg       clk7n_en_reg = 1'b1;
 reg [9:0] shifter;
-always @ (posedge clk_28, negedge reset_n) begin
+always @ (posedge clk_28) begin
 	if (!reset_n) begin
 		clk7_cnt     <= 2'b10;
 		clk7_en_reg  <= 1'b1;
@@ -45,9 +45,9 @@ assign clk7n_en = clk7n_en_reg;
 
 // amiga clocks & clock enables
 //            __    __    __    __    __
-// clk_28  __/  \__/  \__/  \__/  \__/  
+// clk_28  __/  \__/  \__/  \__/  \__/
 //            ___________             __
-// clk_7   __/           \___________/  
+// clk_7   __/           \___________/
 //            ___________             __
 // c1      __/           \___________/   <- clk28m domain
 //                  ___________

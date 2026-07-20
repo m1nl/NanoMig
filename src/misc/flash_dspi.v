@@ -99,7 +99,7 @@ wire [1:0] dspi_in = mspi_din;
 wire [1:0] dspi_in = { mspi_do, mspi_di };  
 `endif
    
-always @(posedge clk or negedge resetn) begin
+always @(posedge clk) begin
    reg csD, csD2;
    
    if(!resetn) begin
@@ -109,6 +109,8 @@ always @(posedge clk or negedge resetn) begin
       busy <= 1'b0;
       init <= 5'd20;
       csD <= 1'b0;
+      csD2 <= 1'b0;
+      state <= 6'd0;
    end else begin
       csD <= cs;     // bring cs into local clock domain
       csD2 <= csD;   // delay to detect rising edge
