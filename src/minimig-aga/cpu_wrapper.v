@@ -79,6 +79,8 @@ module cpu_wrapper
 	output     [15:0] ramdin,
 	input      [15:0] ramdout,
 	input             ramready,
+    output        reg chipready,
+    output      [2:0] led,
 	output            ramlds,
 	output            ramuds,
 	output            ramshared,
@@ -93,7 +95,7 @@ module cpu_wrapper
 
 wire cpu_req = (cpustate != 1) && (!skip_fetch);
 
-assign ramsel       = 0; // cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
+assign ramsel       = cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
 assign ramshared    = sel_dd;
 
 // NMI
@@ -202,7 +204,7 @@ always @* begin
 		uds_in       = uds_o;
 		lds_in       = lds_o;
 		reset_out    = reset_out_o;
-		chip_as      = ramsel | as_o;
+		chip_as      = as_o;
 		chip_rw      = wr_o;
 		chip_uds     = uds_o;
 		chip_lds     = lds_o;
@@ -229,7 +231,12 @@ wire        lds_p;
 wire        reset_out_p;
 wire        longword;
 reg [2:0]   cpu_ipl;
-reg         chipready;
+//reg         chipready;
+
+reg go;
+
+always @(posedge clk)
+    go <= reset;
 
 `ifdef ENABLE_TG68K
 TG68KdotC_Kernel
@@ -255,7 +262,7 @@ cpu_inst_p
 `else
   .nReset(reset),
 `endif
-  .clkena_in(~cpu_req | chipready | ramready | fastchip_ready),
+  .clkena_in((go && ~cpu_req) | chipready | ramready | fastchip_ready),
   .data_in(cpu_din),
   .IPL(cpu_ipl),
   .IPL_autovector(1'b1),
@@ -288,12 +295,25 @@ wire        lds_o;
 wire        reset_out_o;
 
 `ifdef ENABLE_FX68K
+
+reg ram_dtack;
+// ramready is a pulse and fx68 latches
+// dtack on ph2 so we have to keep it
+// asserted at least till ph2
+always @(posedge clk) begin
+  if (~reset | ~reset_out)
+    ram_dtack <= 1;
+  else if (ramready)
+    ram_dtack <= 0;
+  else if (ph2)
+    ram_dtack <= 1;
+end
+
 fx68k cpu_inst_o
 (
 	.clk(clk),
 	.enPhi1( ph1 ),
 	.enPhi2( ph2 ),
-
 `ifdef ENABLE_TG68K
 	.extReset(~reset && ~cpucfg[1]),
 	.pwrUp(~reset && ~cpucfg[1]),
@@ -307,7 +327,7 @@ fx68k cpu_inst_o
 	.ASn(as_o),
 	.LDSn(lds_o),
 	.UDSn(uds_o),
-	.DTACKn(ramsel ? ~ramready : chip_dtack),
+	.DTACKn(ramsel ? ram_dtack : chip_dtack),
 
 	.FC0(fc_o[0]),
 	.FC1(fc_o[1]),
@@ -455,26 +475,17 @@ always @(posedge clk) begin
 	end
 end
 
+reg [15:0] chipdout_i;
+reg        c_as,c_rw,c_uds,c_lds;
+
 wire chipreq = cpu_req & ~ramsel & ~fastchip_selack;
 
-always @(posedge clk) begin
-//	chipreq <= cpu_req & ~ramsel & ~fastchip_selack;
-	cpu_ipl <= ipl_i;
-end
+reg [1:0] stage;
+reg       waitm;
 
-// reg ph1n, ph2n;
-// always @(posedge clk) begin
-// 	ph1n <= ph1;
-// 	ph2n <= ph2;
-// end
+assign led = {cpu_req, stage};
 
-reg [15:0] chipdout_i;
-reg  [2:0] ipl_i;
-reg        c_as,c_rw,c_uds,c_lds;
 always @(posedge clk, negedge reset) begin
-	reg [1:0] stage;
-	reg waitm;
-	reg ready;
 
 	if(~reset) begin
 		stage <= 0;
@@ -482,38 +493,41 @@ always @(posedge clk, negedge reset) begin
 		c_rw <= 1;
 		c_uds <= 1;
 		c_lds <= 1;
-		ready <= 0;
-	end
-	else begin
-		if (ph2) begin
-			waitm <= chip_dtack;
-			if(~stage[0]) ipl_i <= chip_ipl;
-		end
-
 		chipready <= 0;
+
+	end else begin
+		chipready <= 0;
+		if (ph2) begin
+			case (stage)
+				0: cpu_ipl <= chip_ipl;
+				1: ;
+				2: begin
+					cpu_ipl <= chip_ipl;
+					waitm <= chip_dtack;
+				end
+				3: chipready <= 1;
+				endcase
+		end
 		if (ph1) begin
-			chipready <= ready;
-			ready <= 0;
 			case (stage)
 				0: if (chipreq) begin
-						c_as <= 0;
-						c_rw <= wr;
-						c_uds <= uds_in;
-						c_lds <= lds_in;
-						stage <= 1; // 1
-					end
+					c_as <= 0;
+					c_rw <= wr;
+					c_uds <= uds_in;
+					c_lds <= lds_in;
+					stage <= 1;
+				end
 				1: stage <= 2;
 				2: begin
-						chipdout_i <= chip_dout;
-						if (~waitm) begin
-							c_as <= 1;
-							c_rw <= 1;
-							c_uds <= 1;
-							c_lds <= 1;
-							ready <= 1;
-							stage <= 3;  // 3
-						end
+					chipdout_i <= chip_dout;
+					if (~waitm) begin
+						c_as <= 1;
+						c_rw <= 1;
+						c_uds <= 1;
+						c_lds <= 1;
+						stage <= 3;
 					end
+				end
 				3: stage <= 0;
 			endcase
 		end
