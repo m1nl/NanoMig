@@ -79,8 +79,6 @@ module cpu_wrapper
 	output     [15:0] ramdin,
 	input      [15:0] ramdout,
 	input             ramready,
-    output        reg chipready,
-    output      [2:0] led,
 	output            ramlds,
 	output            ramuds,
 	output            ramshared,
@@ -231,14 +229,13 @@ wire        lds_p;
 wire        reset_out_p;
 wire        longword;
 reg [2:0]   cpu_ipl;
-//reg         chipready;
-
-reg go;
-
-always @(posedge clk)
-    go <= reset;
+reg         chipready;
 
 `ifdef ENABLE_TG68K
+reg tg68_armed;
+always @(posedge clk)
+    tg68_armed <= reset;
+
 TG68KdotC_Kernel
 `ifndef VERILATOR
 // verilator runs the verilog translated variant which doesn't support configuration but
@@ -262,7 +259,7 @@ cpu_inst_p
 `else
   .nReset(reset),
 `endif
-  .clkena_in((go && ~cpu_req) | chipready | ramready | fastchip_ready),
+  .clkena_in((tg68_armed && ~cpu_req) | chipready | ramready | fastchip_ready),
   .data_in(cpu_din),
   .IPL(cpu_ipl),
   .IPL_autovector(1'b1),
@@ -475,17 +472,14 @@ always @(posedge clk) begin
 	end
 end
 
-reg [15:0] chipdout_i;
-reg        c_as,c_rw,c_uds,c_lds;
-
 wire chipreq = cpu_req & ~ramsel & ~fastchip_selack;
 
-reg [1:0] stage;
-reg       waitm;
-
-assign led = {cpu_req, stage};
-
+reg [15:0] chipdout_i;
+reg        c_as,c_rw,c_uds,c_lds;
 always @(posedge clk, negedge reset) begin
+	reg [1:0] stage;
+	reg waitm;
+	reg ready;
 
 	if(~reset) begin
 		stage <= 0;
@@ -494,40 +488,36 @@ always @(posedge clk, negedge reset) begin
 		c_uds <= 1;
 		c_lds <= 1;
 		chipready <= 0;
-
+		ready <= 0;
 	end else begin
-		chipready <= 0;
 		if (ph2) begin
-			case (stage)
-				0: cpu_ipl <= chip_ipl;
-				1: ;
-				2: begin
-					cpu_ipl <= chip_ipl;
-					waitm <= chip_dtack;
-				end
-				3: chipready <= 1;
-				endcase
+			waitm <= chip_dtack;
+			if(~stage[0]) cpu_ipl <= chip_ipl;
 		end
+		chipready <= 0;
 		if (ph1) begin
+			chipready <= ready;
+			ready <= 0;
 			case (stage)
 				0: if (chipreq) begin
-					c_as <= 0;
-					c_rw <= wr;
-					c_uds <= uds_in;
-					c_lds <= lds_in;
-					stage <= 1;
-				end
+						c_as <= 0;
+						c_rw <= wr;
+						c_uds <= uds_in;
+						c_lds <= lds_in;
+						stage <= 1;
+					end
 				1: stage <= 2;
 				2: begin
-					chipdout_i <= chip_dout;
-					if (~waitm) begin
-						c_as <= 1;
-						c_rw <= 1;
-						c_uds <= 1;
-						c_lds <= 1;
-						stage <= 3;
+						chipdout_i <= chip_dout;
+						if (~waitm) begin
+							c_as <= 1;
+							c_rw <= 1;
+							c_uds <= 1;
+							c_lds <= 1;
+							ready <= 1;
+							stage <= 3;
+						end
 					end
-				end
 				3: stage <= 0;
 			endcase
 		end

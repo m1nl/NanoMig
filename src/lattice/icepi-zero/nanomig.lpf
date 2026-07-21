@@ -254,9 +254,16 @@ FREQUENCY NET "clk_pixel_x5" 141.5 MHz ;
 FREQUENCY NET "clk_85m" 85.0 MHz ;
 
 MULTICYCLE FROM CLKNET "clk_pixel" TO CLKNET "clk_85m" 2X ;
-# MULTICYCLE FROM CLKNET "clk_85m" TO CLKNET "clk_pixel" 2X ;
 
 BLOCK PATH FROM CELL "nanomig/minimig/AGNUS1/bc1/beamcon0*" ;
+
+BLOCK PATH FROM CELL "sysctrl/system_cpu*" ;
+BLOCK PATH FROM CELL "sysctrl/system_chipset*" ;
+BLOCK PATH FROM CELL "sysctrl/system_video*" ;
+BLOCK PATH FROM CELL "sysctrl/system_chipmem*" ;
+BLOCK PATH FROM CELL "sysctrl/system_slowmem*" ;
+BLOCK PATH FROM CELL "sysctrl/system_fastmem*" ;
+BLOCK PATH FROM CELL "sysctrl/system_volume*" ;
 
 # CLOCK_TO_OUT PORT "O_sdram_cs_n*" OUTPUT_DELAY 1.5 ns MIN 0.8 ns CLKNET "clk_85m" CLKOUT PORT "O_sdram_clk" CLK_OFFSET 0.5 X ;
 # CLOCK_TO_OUT PORT "O_sdram_addr*" OUTPUT_DELAY 1.5 ns MIN 0.8 ns CLKNET "clk_85m" CLKOUT PORT "O_sdram_clk" CLK_OFFSET 0.5 X ;

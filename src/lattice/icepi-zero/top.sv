@@ -84,7 +84,7 @@ wire spi_sclk = ( spi_sclk && spi_sclk_D != 16'h0000) ||
 wire [5:0] db9_joy0 = { !js0[5], !js0[0], !js0[2], !js0[1], !js0[4], !js0[3] };
 wire [5:0] db9_joy1 = { !js1[5], !js1[0], !js1[2], !js1[1], !js1[4], !js1[3] };
 
-assign leds[4] = |{sd_wr,sd_rd};
+assign leds[4] = fastram_ready || fastram_sel; // |{sd_wr,sd_rd};
 
 
 // mirror leds 0-2 to gpio 13-15
@@ -167,7 +167,7 @@ wire       osd_floppy_wrprot;
 `ifndef DISABLE_IDE
 wire       osd_ide_enable;
 `endif
-wire [1:0] osd_cpu = 2'b00;     // 0=68000, 1=68010, 2=68020
+wire [1:0] osd_cpu;             // 0=68000, 1=68010, 2=68020
 wire [1:0] osd_chipset;         // 0=OCS-A500, 1=OCS-A1000, 2=ECS
 wire       osd_video_mode;      // PAL (0=PAL, 1=NTSC)
 wire [1:0] osd_video_screen;    // 0=standard, 1=overscan, 2=wide screen (jailbars)
@@ -480,7 +480,8 @@ sysctrl sysctrl (
 `ifndef DISABLE_IDE
 		.system_ide_enable(osd_ide_enable),
 `endif
-	    .system_chipset(osd_chipset),
+		.system_cpu(osd_cpu),
+		.system_chipset(osd_chipset),
 		.system_video_mode(osd_video_mode),
 		.system_video_screen(osd_video_screen),
 		.system_video_filter(osd_video_filter),
@@ -726,22 +727,6 @@ reg [17:0]  flash_ram_addr;
 reg         flash_ram_write;
 reg         flash_ram_strobe;
 
-reg uart_send;
-reg [7:0] uart_data;
-reg uart_busy;
-
-uart_tx #(
-    .CLK(28333333),
-    .BAUD_RATE(115200),
-    .BITS(8)
-) uart_tx_0 (
-    .clk(clk_28m),
-    .send(uart_send),
-    .data(uart_data),
-    .tx(usb_tx),
-    .busy(uart_busy)
-);
-
 always @(posedge clk_28m) begin
   if(rst_28m || !flash_ready_d2 || !reset_n) begin
     flash_addr <= 22'h200000;          // 4MB flash offset (word address)
@@ -787,73 +772,9 @@ always @(posedge clk_28m) begin
           state <= 1;
         end
       end
-//      5: begin
-//        if (!uart_busy) begin
-//          uart_data <= flash_dout[15:8];
-//          uart_send <= 1;
-//          state <= 6;
-//        end
-//      end
-//      6: begin
-//        if (uart_busy) begin
-//          uart_send <= 0;
-//          state <= 7;
-//        end
-//      end
-//      7: begin
-//        if (!uart_busy) begin
-//          uart_data <= flash_dout[7:0];
-//          uart_send <= 1;
-//          state <= 8;
-//        end
-//      end
-//      8: begin
-//        if (uart_busy) begin
-//          uart_send <= 0;
-//          state <= 9;
-//        end
-//      end
-//      9: begin
-//        if (clk7_en) begin
-//          flash_ram_strobe <= 1;
-//          state <= 10;
-//        end
-//      end
-//      10: begin
-//        if (clk7n_en) begin
-//          flash_ram_strobe <= 0;
-//          flash_ram_addr <= flash_ram_addr + 1;
-//          flash_addr <= flash_addr + 1;
-//          word_count <= word_count - 1;
-//          state <= 11;
-//        end
-//      end
-//      11: begin
-//        if (!uart_busy && clk7_en) begin
-//          uart_data <= sdram_dout[15:8];
-//          uart_send <= 1;
-//          state <= 12;
-//        end
-//      end
-//      12: begin
-//        if (uart_busy) begin
-//          uart_send <= 0;
-//          state <= 13;
-//        end
-//      end
-//      13: begin
-//        if (!uart_busy) begin
-//          uart_data <= sdram_dout[7:0];
-//          uart_send <= 1;
-//          state <= 14;
-//        end
-//      end
-//      14: begin
-//        if (uart_busy) begin
-//          uart_send <= 0;
-//          state <= 1;
-//        end
-//      end
+      default: begin
+        state <= 0;
+      end
     endcase
   end
 end
@@ -947,7 +868,7 @@ sdram #(
 	.p2_ds         ( fastram_be      ), // upper/lower data strobe
 	.p2_cs         ( fastram_sel     ), // cpu/chipset requests read/wrie
 	.p2_we         ( fastram_wr      ),  // cpu/chipset requests write
-	.p2_ack        ( fastram_ready     )
+	.p2_ack        ( fastram_ready   )
 );
 
 // run the flash a 85MHz. This is only used at power-up to copy kickstart
@@ -1065,8 +986,10 @@ hdmi #(
 ) hdmi(
   .clk_pixel_x5(clk_pixel_x5),
   .clk_pixel(clk_pixel),
+
   .audio_sample_word_0(audio_reg[0]),
   .audio_sample_word_1(audio_reg[1]),
+
   .tmds_clock(tmds[0]),
   .tmds(tmds[3:1]),
 

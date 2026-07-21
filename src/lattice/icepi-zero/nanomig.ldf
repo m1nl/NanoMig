@@ -261,6 +261,9 @@
         <Source name="../../tg68k/TG68KdotC_Kernel.vhd" type="VHDL" type_short="VHDL">
             <Options/>
         </Source>
+        <Source name="../../uart_tx.sv" type="Verilog" type_short="Verilog">
+            <Options VerilogStandard="System Verilog"/>
+        </Source>
         <Source name="nanomig.lpf" type="Logic Preference" type_short="LPF">
             <Options/>
         </Source>
