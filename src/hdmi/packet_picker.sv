@@ -25,7 +25,7 @@ module packet_picker
     output logic [55:0] sub_1,
     output logic [55:0] sub_2,
     output logic [55:0] sub_3
-);
+) /* synthesis syn_sharing = "off" */;
 
 // Connect the current packet type's data to the output.
 logic [2:0]  packet_type;

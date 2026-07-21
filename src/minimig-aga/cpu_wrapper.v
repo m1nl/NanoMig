@@ -91,9 +91,9 @@ module cpu_wrapper
 	output reg [31:0] nmi_addr
 );
 
-wire cpu_req = cpustate != 1;
+wire cpu_req = (cpustate != 1) && (!skip_fetch);
 
-assign ramsel       = cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
+assign ramsel       = 0; // cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
 assign ramshared    = sel_dd;
 
 // NMI
@@ -177,6 +177,7 @@ always @* begin
 		chip_addr    = cpu_addr_p[23:1];
 		chip_din     = cpu_dout_p;
 		chip_data    = chipdout_i;
+		skip_fetch   = skip_fetch_i;
 `ifdef TG68K_A24
 		cpu_addr     = { 8'h00, cpu_addr_p[23:0] };
 		fastchip_sel = 0;
@@ -185,7 +186,6 @@ always @* begin
 		cpu_addr     = cpu_addr_p;
 		fastchip_sel = cpu_req & !cpu_addr_p[31:24];
 		fastchip_lw  = longword;
-        skip_fetch   = skip_fetch_i;
 `endif
 `endif
 `ifdef CPU_SWITCHABLE
@@ -211,7 +211,7 @@ always @* begin
 		chip_data    = chip_dout;
 		fastchip_sel = 0;
 		fastchip_lw  = 0;
-        skip_fetch   = 0;
+		skip_fetch   = 0;
 `endif
 `ifdef CPU_SWITCHABLE
 	end
@@ -462,11 +462,11 @@ always @(posedge clk) begin
 	cpu_ipl <= ipl_i;
 end
 
-//reg ph1n, ph2n;
-//always @(posedge clk) begin
-//	ph1n <= ph1;
-//	ph2n <= ph2;
-//end
+// reg ph1n, ph2n;
+// always @(posedge clk) begin
+// 	ph1n <= ph1;
+// 	ph2n <= ph2;
+// end
 
 reg [15:0] chipdout_i;
 reg  [2:0] ipl_i;

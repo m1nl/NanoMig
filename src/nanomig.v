@@ -140,17 +140,21 @@ amiga_clk amiga_clk
 // cpu_ph1 is valid before clk7_en and cpu_ph2 is after clk7_en
 // so order is: cpu_ph1, clk7_en, cpu_ph2, clk7n_en
 reg  cpu_ph1, cpu_ph2;
-always @(posedge clk_sys) begin
+always @(*) begin
    if (~cpu_rst) begin
-      cpu_ph1 <= 1'b0;
-      cpu_ph2 <= 1'b0;
-   end else begin 
-      cpu_ph1 <= !c1 &&  c3;  // on negedge clk_sys
-      cpu_ph2 <=  c1 && !c3;  // -"-
-//      cpu_ph1 <=   c1 &&  c3;
-//      cpu_ph2 <=  !c1 && !c3;
+      cpu_ph1 = 1'b0;
+      cpu_ph2 = 1'b0;
+   end else begin
+      cpu_ph1 = !c1 && !c3;  // on negedge clk_sys
+      cpu_ph2 =  c1 &&  c3;  // -"-
+
+//    cpu_ph1 <=   c1 &&  c3;
+//    cpu_ph2 <=  !c1 && !c3;
    end
 end
+
+// c1 1100
+// c3 0110
 
 wire  [1:0] cpu_state;
 // wire        cpu_nrst_out;

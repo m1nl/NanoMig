@@ -235,9 +235,9 @@ IOBUF  PORT "mspi_di" IO_TYPE=LVCMOS33 PULLMODE=NONE ;
 LOCATE COMP "mspi_do" SITE "T7";
 IOBUF  PORT "mspi_do" IO_TYPE=LVCMOS33 PULLMODE=NONE ;
 LOCATE COMP "mspi_wp" SITE "M7";
-IOBUF  PORT "mspi_wp" IO_TYPE=LVCMOS33 PULLMODE=UP ;
+IOBUF  PORT "mspi_wp" IO_TYPE=LVCMOS33 PULLMODE=DOWN ;
 LOCATE COMP "mspi_hold" SITE "N7";
-IOBUF  PORT "mspi_hold" IO_TYPE=LVCMOS33 PULLMODE=UP ;
+IOBUF  PORT "mspi_hold" IO_TYPE=LVCMOS33 PULLMODE=DOWN ;
 
 # fake clock tristate to prevent synplify to optimize this away
 LOCATE COMP "mspi_clk_ts" SITE "D12";

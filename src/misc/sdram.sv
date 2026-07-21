@@ -34,6 +34,7 @@
 
 module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=1, RAS_WIDTH=13, CAS_WIDTH=9) (
     inout [DATA_WIDTH-1:0] sd_data, // 16/32 bit bidirectional data bus
+    output reg sd_cke,
     output reg [RAS_WIDTH-1:0] sd_addr, // multiplexed address bus
     output reg [(DATA_WIDTH/8)-1:0]  sd_dqm, // two/four byte masks
     output reg [1:0]  sd_ba,  // four banks
@@ -55,6 +56,7 @@ module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=1, RAS_WIDTH=13, CAS_WIDTH=
     input [1:0]      ds,      // upper/lower data strobe
     input          cs,      // cpu/chipset requests read/write
     input          we,      // cpu/chipset requests write
+    output reg     ack,
 
     input [15:0]      p2_din,  // data input from chipset/cpu
     output reg [15:0] p2_dout,
@@ -85,10 +87,6 @@ localparam DQM_WIDTH = (DATA_WIDTH/8);     // number of DQM bits (4 for 32 data 
 localparam ADDR_BASE = (DATA_WIDTH==32)?1:0;
 wire [31:0] addr32 = { {(10+ADDR_BASE){1'b0}}, addr[21:ADDR_BASE]};
 wire [31:0] p2_addr32 = { {(10+ADDR_BASE){1'b0}}, p2_addr[21:ADDR_BASE]};
-
-reg [15:0] din_l;
-reg        we_l;
-reg  [1:0] ds_l;
 
 reg [RAS_WIDTH-1:0] sd_addr_next;
 reg addr_0;
@@ -137,7 +135,7 @@ localparam STATE_LAST      = 4'd6;  // last state in cycle
 // ---------------------------------------------------------------------
 
 reg [3:0] state;
-reg [4:0] init_state;
+reg [8:0] init_state;
 
 // wait 1ms (32 8Mhz cycles) after FPGA config is done before going
 // into normal operation. Initialize the ram in the last 16 reset cycles (cycles 15-0)
@@ -193,14 +191,17 @@ always @(posedge clk) begin
   // init state machines runs once reset ends
   if (!reset_n) begin
     sd_cmd <= CMD_NOP;  // default: idle
+    sd_addr <= 0;
+    sd_cke <= 0;
     drive_dq <= 1'b0;
     sync_d <= 0;
 
-    init_state <= 5'h1f;
+    init_state <= 9'h1ff;
     refreshcnt <= REFRESHSCHEDULE;
     sdram_port <= PORTIDLE;
     state <= STATE_IDLE;
-    we_l <= 0;
+
+    ack <= 0;
     p2_ack <= 0;
 
   end else if (init_state != 0) begin
@@ -209,29 +210,41 @@ always @(posedge clk) begin
 
     state <= state + 3'd1;
 
-    if (state == STATE_IDLE) begin
-      if (init_state == 13) begin
-        sd_cmd <= CMD_PRECHARGE;
-        sd_addr[10] <= 1'b1;      // precharge all banks
+    if (&state)
+      init_state <= init_state - 9'd1;
+
+    if (state == 0) begin
+      if (init_state == 9'h100) begin
+        sd_cke <= 1;
       end
 
-      if (init_state == 2) begin
-        sd_cmd <= CMD_LOAD_MODE;
+      if (init_state == 9'h004) begin
+        sd_cmd <= CMD_PRECHARGE;
+        sd_addr[10] <= 1'b1;
+      end
+
+      if (init_state == 9'h003) begin
+        sd_cmd <= CMD_AUTO_REFRESH;
+      end
+
+      if (init_state == 9'h002) begin
+        sd_cmd <= CMD_AUTO_REFRESH;
+      end
+
+      if (init_state == 9'h001) begin
+        sd_cmd  <= CMD_LOAD_MODE;
         sd_addr <= MODE;
       end
-    end else if (state == STATE_LAST) begin
-      init_state <= init_state - 5'd1;
     end
 
   end else begin
     sd_cmd <= CMD_NOP;  // default: idle
+    sd_dqm <= {(DATA_WIDTH/8){1'b0}};
     drive_dq <= 1'b0;
 
     sync_d <= {sync_d[0], sync};
 
     if (state == STATE_IDLE) begin
-      sd_dqm <= {(DATA_WIDTH/8){1'b0}};
-
       if (cs) begin
         // TODO TN20k: addr 19:9, ba 21:20
         // MiSTer: a 21:9, ba '00
@@ -243,8 +256,6 @@ always @(posedge clk) begin
         sd_addr_next[10] <= 1'b1;
         sd_addr_next[CAS_WIDTH-1:0] <= addr32[CAS_WIDTH-1:0];
 
-        din_l <= din;
-
       end else if (p2_cs) begin
         sd_addr <= p2_addr32[RAS_WIDTH+CAS_WIDTH-1:CAS_WIDTH];
         sd_ba <= p2_addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
@@ -253,8 +264,6 @@ always @(posedge clk) begin
         sd_addr_next[RAS_WIDTH-1:0] <= {RAS_WIDTH{1'b0}};
         sd_addr_next[10] <= 1'b1;
         sd_addr_next[CAS_WIDTH-1:0] <= p2_addr32[CAS_WIDTH-1:0];
-
-        din_l <= p2_din;
       end
 
       // start a ram cycle at the falling edge of sync
@@ -268,9 +277,6 @@ always @(posedge clk) begin
           sdram_port <= PORT1;
           sd_cmd <= CMD_ACTIVE;
 
-          we_l <= we;
-          ds_l <= ds;
-
         end else if (refreshcnt == 0) begin
           sdram_port <= PORTREFRESH;
           sd_cmd <= CMD_AUTO_REFRESH;
@@ -280,9 +286,6 @@ always @(posedge clk) begin
         end else if (p2_cs) begin
           sdram_port <= PORT2;
           sd_cmd <= CMD_ACTIVE;
-
-          we_l <= p2_we;
-          ds_l <= p2_ds;
         end
       end
 
@@ -293,29 +296,41 @@ always @(posedge clk) begin
       // -------------------  cpu/chipset read/write ----------------------
       // CAS phase
       if (state == STATE_CMD_CONT) begin
+        sd_addr <= sd_addr_next;
+
         case (sdram_port)
           PORTREFRESH: ;
-          PORT1: sd_cmd <= we_l ? CMD_WRITE : CMD_READ;
-          PORT2: sd_cmd <= we_l ? CMD_WRITE : CMD_READ;
+          PORT1: begin
+            sd_cmd <= we ? CMD_WRITE : CMD_READ;
+            to_ram <= {(DATA_WIDTH/16){din}};
+            if (we) begin
+              sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},ds}:{ds,{(DATA_WIDTH/8-2){1'b1}}};
+              drive_dq <= 1;
+              ack <= ~ack;
+            end
+          end
+          PORT2: begin
+            sd_cmd <= p2_we ? CMD_WRITE : CMD_READ;
+            to_ram <= {(DATA_WIDTH/16){p2_din}};
+            if (p2_we) begin
+              sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},p2_ds}:{p2_ds,{(DATA_WIDTH/8-2){1'b1}}};
+              drive_dq <= 1;
+              p2_ack <= ~p2_ack;
+            end
+          end
           default: ;
         endcase
 
-        if (we_l) begin
-          sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},ds_l}:{ds_l,{(DATA_WIDTH/8-2){1'b1}}};
-        end
-
-        sd_addr <= sd_addr_next;
-        to_ram <= {(DATA_WIDTH/16){din_l}};
-        drive_dq <= we_l;
-
-      end else if (state == STATE_READ && !we_l) begin
+      end else if (state == STATE_READ) begin
         case (sdram_port)
           PORTREFRESH: ;
-          PORT1 :
+          PORT1 : begin
             dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
+            if (!we) ack <= ~ack;
+          end
           PORT2 : begin
             p2_dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
-            p2_ack <= ~p2_ack;
+            if (!p2_we) p2_ack <= ~p2_ack;
           end
           default: ;
         endcase
@@ -323,7 +338,6 @@ always @(posedge clk) begin
       end else if (state == STATE_LAST) begin
         sdram_port <= PORTIDLE;
         state <= STATE_IDLE;
-        we_l <= 0;
       end
     end
   end
