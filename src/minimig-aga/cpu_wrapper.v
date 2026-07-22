@@ -74,7 +74,7 @@ module cpu_wrapper
 	input             fastchip_selack,
 	input             fastchip_ready,
 
-	output            ramsel,
+	output            ramreq,
 	output     [28:1] ramaddr,
 	output     [15:0] ramdin,
 	input      [15:0] ramdout,
@@ -91,9 +91,11 @@ module cpu_wrapper
 	output reg [31:0] nmi_addr
 );
 
-wire cpu_req = (cpustate != 1) && (!skip_fetch);
+wire cpu_req = cpustate != 1 && !skip_fetch;
 
-assign ramsel       = cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
+reg    ram_dtack    = 1'b1;
+wire   ramsel       = cpu_req & ~sel_nmi_vector & (sel_zram | sel_chipram | sel_kickram | sel_dd | sel_rtg);
+assign ramreq       = ramsel & ram_dtack;
 assign ramshared    = sel_dd;
 
 // NMI
@@ -202,7 +204,9 @@ always @* begin
 		uds_in       = uds_o;
 		lds_in       = lds_o;
 		reset_out    = reset_out_o;
-		chip_as      = as_o;
+        // ramsel here prevents fastram
+        // access to be routed through chipset
+		chip_as      = ramsel | as_o;
 		chip_rw      = wr_o;
 		chip_uds     = uds_o;
 		chip_lds     = lds_o;
@@ -216,6 +220,30 @@ always @* begin
 `ifdef CPU_SWITCHABLE
 	end
 `endif
+end
+
+// ramready pulses at ph1, but
+// fx68k latches DTACKn at ph2;
+// so we need to keep DTACKn value
+// until it can be ready by fx68k
+always @(posedge clk) begin
+  if (~reset | ~reset_out)
+    ram_dtack  <= 1'b1;
+  else begin
+`ifdef CPU_SWITCHABLE
+    if( !cpucfg[1] ) begin
+`endif
+`ifdef ENABLE_FX68K
+      if (ph2)
+        ram_dtack <= ramsel;
+      if (ramready)
+        ram_dtack  <= 1'b0;
+`endif
+`ifdef CPU_SWITCHABLE
+    end else
+      ram_dtack <= 1'b1;  // ignored for TG68
+`endif
+  end
 end
 
 wire [15:0] cpu_dout_p;
@@ -292,20 +320,6 @@ wire        lds_o;
 wire        reset_out_o;
 
 `ifdef ENABLE_FX68K
-
-reg ram_dtack;
-// ramready is a pulse and fx68 latches
-// dtack on ph2 so we have to keep it
-// asserted at least till ph2
-always @(posedge clk) begin
-  if (~reset | ~reset_out)
-    ram_dtack <= 1;
-  else if (ramready)
-    ram_dtack <= 0;
-  else if (ph2)
-    ram_dtack <= 1;
-end
-
 fx68k cpu_inst_o
 (
 	.clk(clk),
@@ -324,7 +338,7 @@ fx68k cpu_inst_o
 	.ASn(as_o),
 	.LDSn(lds_o),
 	.UDSn(uds_o),
-	.DTACKn(ramsel ? ram_dtack : chip_dtack),
+    .DTACKn(ramsel ? ram_dtack : chip_dtack),
 
 	.FC0(fc_o[0]),
 	.FC1(fc_o[1]),
@@ -369,6 +383,7 @@ reg [3:0] autocfg_data;
 always @(*) begin
 	autocfg_data = 4'b1111;
 
+`ifdef ENABLE_TOCCATA
 	if (~ac_toccata) begin
 		case (chip_addr[6:1])
 			6'h0: autocfg_data = 4'b1100; // Zorro-II card, no link, no ROM
@@ -382,8 +397,9 @@ always @(*) begin
 			6'hb: autocfg_data = 4'b1011;
 			default: ;
 		endcase
-	end
-	else if (autocfg_card) begin
+	end else
+`endif
+    if (autocfg_card) begin
 		if (~cfg_z3) begin
 			// Zorro II RAM (Up to 8 meg at 0x200000)
 			case (chip_addr[6:1])
@@ -444,20 +460,21 @@ always @(posedge clk) begin
 		toccata_ena<=1'b0;
 	end
 	else if (sel_autoconfig && ~chip_rw && ~chip_uds && old_uds) begin
+`ifdef ENABLE_TOCCATA
 		if (~ac_toccata) begin
 			if (chip_addr[6:1] == 6'b100100) begin // Register 0x48 - config, Toccata card in ZII io space ($E90000)
 				toccata_ena <= 1;
 				toccata_base <= cpu_dout[7:0];
 				ac_toccata<=1'b1;
 			end
-		end
-		else if (~cfg_z3) begin
+		end else
+`endif
+        if (~cfg_z3) begin
 			if (chip_addr[6:1] == 6'b100100) begin // Register 0x48 - config, ZII RAM
 				z2ram_ena <= 1;
 				autocfg_card <= 0;
 			end
-		end
-		else if (chip_addr[6:1] == 6'b100010)	begin // Register 0x44, assign base address to ZIII RAM.
+		end else if (chip_addr[6:1] == 6'b100010)	begin // Register 0x44, assign base address to ZIII RAM.
 			if (autocfg_card == 1) begin
 				z3ram_base1 <= cpu_dout[15:12];
 				z3ram_ena1 <= 1;

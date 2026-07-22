@@ -32,7 +32,7 @@
 // address map:  BA:--  RAS:21..9 CAS:8..0  no data mux
 
 
-module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=1, RAS_WIDTH=13, CAS_WIDTH=9) (
+module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=2, RAS_WIDTH=13, CAS_WIDTH=9) (
     inout [DATA_WIDTH-1:0] sd_data, // 16/32 bit bidirectional data bus
     output reg sd_cke,
     output reg [RAS_WIDTH-1:0] sd_addr, // multiplexed address bus
@@ -90,6 +90,7 @@ wire [31:0] p2_addr32 = { {(10+ADDR_BASE){1'b0}}, p2_addr[21:ADDR_BASE]};
 
 reg [RAS_WIDTH-1:0] sd_addr_next;
 reg addr_0;
+reg write;
 
 // CAS addr32[CAS_WIDTH-1:0]
 // RAS addr32[RAS_WIDTH+CAS_WIDTH-1:CAS_WIDTH]
@@ -256,6 +257,8 @@ always @(posedge clk) begin
         sd_addr_next[10] <= 1'b1;
         sd_addr_next[CAS_WIDTH-1:0] <= addr32[CAS_WIDTH-1:0];
 
+        write <= we;
+
       end else if (p2_cs) begin
         sd_addr <= p2_addr32[RAS_WIDTH+CAS_WIDTH-1:CAS_WIDTH];
         sd_ba <= p2_addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
@@ -264,6 +267,8 @@ always @(posedge clk) begin
         sd_addr_next[RAS_WIDTH-1:0] <= {RAS_WIDTH{1'b0}};
         sd_addr_next[10] <= 1'b1;
         sd_addr_next[CAS_WIDTH-1:0] <= p2_addr32[CAS_WIDTH-1:0];
+
+        write <= p2_we;
       end
 
       // start a ram cycle at the falling edge of sync
@@ -277,7 +282,7 @@ always @(posedge clk) begin
           sdram_port <= PORT1;
           sd_cmd <= CMD_ACTIVE;
 
-        end else if (refreshcnt == 0) begin
+        end else if (refreshcnt == 0 || (cs && refresh)) begin
           sdram_port <= PORTREFRESH;
           sd_cmd <= CMD_AUTO_REFRESH;
 
@@ -301,18 +306,18 @@ always @(posedge clk) begin
         case (sdram_port)
           PORTREFRESH: ;
           PORT1: begin
-            sd_cmd <= we ? CMD_WRITE : CMD_READ;
+            sd_cmd <= write ? CMD_WRITE : CMD_READ;
             to_ram <= {(DATA_WIDTH/16){din}};
-            if (we) begin
+            if (write) begin
               sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},ds}:{ds,{(DATA_WIDTH/8-2){1'b1}}};
               drive_dq <= 1;
               ack <= ~ack;
             end
           end
           PORT2: begin
-            sd_cmd <= p2_we ? CMD_WRITE : CMD_READ;
+            sd_cmd <= write ? CMD_WRITE : CMD_READ;
             to_ram <= {(DATA_WIDTH/16){p2_din}};
-            if (p2_we) begin
+            if (write) begin
               sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},p2_ds}:{p2_ds,{(DATA_WIDTH/8-2){1'b1}}};
               drive_dq <= 1;
               p2_ack <= ~p2_ack;
@@ -326,11 +331,11 @@ always @(posedge clk) begin
           PORTREFRESH: ;
           PORT1 : begin
             dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
-            if (!we) ack <= ~ack;
+            if (!write) ack <= ~ack;
           end
           PORT2 : begin
             p2_dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
-            if (!p2_we) p2_ack <= ~p2_ack;
+            if (!write) p2_ack <= ~p2_ack;
           end
           default: ;
         endcase

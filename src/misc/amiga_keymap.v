@@ -1,6 +1,6 @@
 /*
  amiga_keymap.v
- 
+
  table to translate from FPGA Compantions key codes into
  Amiga key codes. The incoming FPGA Companion codes
  are mainly the USB HID key codes with the modifier keys
@@ -8,11 +8,12 @@
 */
 
 module keymap (
+  input        clk,
   input [6:0]  code,
   output [6:0] amiga
 );
 
-assign amiga = 
+assign amiga =
                            // 00: NoEvent
                            // 01: Overrun Error
                            // 02: POST fail
@@ -56,22 +57,22 @@ assign amiga =
   (code == 7'h25)?7'h08:   // 25: 8
   (code == 7'h26)?7'h09:   // 26: 9
   (code == 7'h27)?7'h0a:   // 27: 0
-  
+
   // other keys
   (code == 7'h28)?7'h44:   // 28: return
   (code == 7'h29)?7'h45:   // 29: esc
   (code == 7'h2a)?7'h41:   // 2a: backspace
-  (code == 7'h2b)?7'h42:   // 2b: tab		  
+  (code == 7'h2b)?7'h42:   // 2b: tab
   (code == 7'h2c)?7'h40:   // 2c: space
 
   (code == 7'h2d)?7'h0b:   // 2d: -
   (code == 7'h2e)?7'h0c:   // 2e: =
-  (code == 7'h2f)?7'h1a:   // 2f: [			  
+  (code == 7'h2f)?7'h1a:   // 2f: [
   (code == 7'h30)?7'h1b:   // 30: ]
-  (code == 7'h31)?7'h0d:   // 31: backslash 
+  (code == 7'h31)?7'h0d:   // 31: backslash
   (code == 7'h32)?7'h2b:   // 32: EUR-1
   (code == 7'h33)?7'h29:   // 33: ;
-  (code == 7'h34)?7'h2a:   // 34: ' 
+  (code == 7'h34)?7'h2a:   // 34: '
   (code == 7'h35)?7'h00:   // 35: `
   (code == 7'h36)?7'h38:   // 36: :
   (code == 7'h37)?7'h39:   // 37: .
@@ -101,13 +102,13 @@ assign amiga =
   (code == 7'h4c)?7'h46:   // 4c: Delete
   (code == 7'h4d)?7'h5f:   // 4d: End -> HELP
   (code == 7'h4e)?7'h67:   // 4e: PageDown -> Right-Amiga
-  
+
   // cursor keys
   (code == 7'h4f)?7'h4e:   // 4f: right
   (code == 7'h50)?7'h4f:   // 50: left
   (code == 7'h51)?7'h4d:   // 51: down
   (code == 7'h52)?7'h4c:   // 52: up
-  
+
                            // 53: Num Lock
 
   // keypad
@@ -139,7 +140,7 @@ assign amiga =
   (code == 7'h6e)?7'h65:   // right alt
   (code == 7'h6f)?7'h67:   // right meta
 
-  7'h7f;   
+  7'h7f;
 
 endmodule
-  
+
