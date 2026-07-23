@@ -626,7 +626,11 @@ wire [2:0] fastram_config = { 1'b0, osd_fastmem };
 wire [3:0] floppy_config = { osd_floppy_drives, osd_floppy_wrprot, osd_floppy_turbo };
 wire [3:0] video_config = { osd_video_filter, osd_video_scanlines };
 `ifndef DISABLE_IDE
-wire [5:0] ide_config = { 5'b00000, osd_ide_enable };
+// FIXME - setting ide_config[5] prevents minimig from using
+// fast chipset bus for GAYLE, which is by default in use
+// when 68020 CPU is selected; we may connect fast chip bus
+// to GAYLE and set ide_config[5] to 0 to improve performance
+wire [5:0] ide_config = { 5'b10000, osd_ide_enable };
 `endif
 
 nanomig nanomig
