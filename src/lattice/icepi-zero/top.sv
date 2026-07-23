@@ -1003,7 +1003,7 @@ video_analyzer video_analyzer (
 );
 
 hdmi #(
-  .VIDEO_RATE(PIXEL_CLOCK),
+  .VIDEO_RATE(`PIXEL_CLOCK),
   .AUDIO_RATE(44100),
   .AUDIO_BIT_WIDTH(16)
 ) hdmi(

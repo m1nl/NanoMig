@@ -404,7 +404,7 @@ reg [31:0] total_sectors[DRIVES];
 integer drv;
 
 always @(posedge clk_sys) begin
-   if (reset) begin
+   if (por) begin
       for(drv = 0; drv < DRIVES; drv = drv+1) begin
           ide_drv_state[drv] <= IDE_DRV_STATE_NONE;
           ide_sdc_rd[drv] <= 0;
