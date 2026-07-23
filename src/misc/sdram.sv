@@ -32,7 +32,7 @@
 // address map:  BA:--  RAS:21..9 CAS:8..0  no data mux
 
 
-module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=2, RAS_WIDTH=13, CAS_WIDTH=9) (
+module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=1, RAS_WIDTH=13, CAS_WIDTH=9) (
     inout [DATA_WIDTH-1:0] sd_data, // 16/32 bit bidirectional data bus
     output reg sd_cke,
     output reg [RAS_WIDTH-1:0] sd_addr, // multiplexed address bus
@@ -52,6 +52,7 @@ module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=2, RAS_WIDTH=13, CAS_WIDTH=
     input          refresh, // chipset requests a refresh cycle
     input [15:0]      din,     // data input from chipset/cpu
     output reg [15:0] dout,
+    output reg [47:0] dout48,
     input [21:0]      addr,    // 22 bit word address for 8MB
     input [1:0]      ds,      // upper/lower data strobe
     input          cs,      // cpu/chipset requests read/write
@@ -70,7 +71,7 @@ module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=2, RAS_WIDTH=13, CAS_WIDTH=
   `default_nettype none
 `endif
 
-localparam BURST_LENGTH   = 3'b000; // 000=1, 001=2, 010=4, 011=8
+localparam BURST_LENGTH   = 3'b010; // 000=1, 001=2, 010=4, 011=8
 localparam ACCESS_TYPE    = 1'b0;   // 0=sequential, 1=interleaved
 localparam CAS_LATENCY    = 3'd2;   // 2/3 allowed
 localparam OP_MODE        = 2'b00;  // only 00 (standard operation) allowed
@@ -114,8 +115,11 @@ reg write;
 // The state machine runs at 32Mhz synchronous to the sync signal.
 localparam STATE_IDLE      = 4'd0;   // first state in cycle
 localparam STATE_CMD_CONT  = STATE_IDLE + RASCAS_DELAY; // command can be continued
-localparam STATE_READ      = STATE_CMD_CONT + CAS_LATENCY + 4'd1;
-localparam STATE_LAST      = 4'd6;  // last state in cycle
+localparam STATE_READ_0    = STATE_CMD_CONT + CAS_LATENCY + 4'd1;
+localparam STATE_READ_1    = STATE_READ_0 + 4'd1;
+localparam STATE_READ_2    = STATE_READ_1 + 4'd1;
+localparam STATE_READ_3    = STATE_READ_2 + 4'd1;
+localparam STATE_LAST      = STATE_READ_3 + 4'd1;  // last state in cycle
 
 // Cycle pattern:
 // 0 - STATE_IDLE - wait for 7MHz clock, perform RAS if CS is asserted
@@ -300,50 +304,77 @@ always @(posedge clk) begin
 
       // -------------------  cpu/chipset read/write ----------------------
       // CAS phase
-      if (state == STATE_CMD_CONT) begin
-        sd_addr <= sd_addr_next;
+      case (state)
+        STATE_CMD_CONT: begin
+          sd_addr <= sd_addr_next;
 
-        case (sdram_port)
-          PORTREFRESH: ;
-          PORT1: begin
-            sd_cmd <= write ? CMD_WRITE : CMD_READ;
-            to_ram <= {(DATA_WIDTH/16){din}};
-            if (write) begin
-              sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},ds}:{ds,{(DATA_WIDTH/8-2){1'b1}}};
-              drive_dq <= 1;
-              ack <= ~ack;
+          case (sdram_port)
+            PORTREFRESH: ;
+            PORT1: begin
+              sd_cmd <= write ? CMD_WRITE : CMD_READ;
+              to_ram <= {(DATA_WIDTH/16){din}};
+              if (write) begin
+                sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},ds}:{ds,{(DATA_WIDTH/8-2){1'b1}}};
+                drive_dq <= 1;
+                ack <= ~ack;
+              end
             end
-          end
-          PORT2: begin
-            sd_cmd <= write ? CMD_WRITE : CMD_READ;
-            to_ram <= {(DATA_WIDTH/16){p2_din}};
-            if (write) begin
-              sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},p2_ds}:{p2_ds,{(DATA_WIDTH/8-2){1'b1}}};
-              drive_dq <= 1;
-              p2_ack <= ~p2_ack;
+            PORT2: begin
+              sd_cmd <= write ? CMD_WRITE : CMD_READ;
+              to_ram <= {(DATA_WIDTH/16){p2_din}};
+              if (write) begin
+                sd_dqm <= addr_0 ? { {(DATA_WIDTH/8-2){1'b1}},p2_ds}:{p2_ds,{(DATA_WIDTH/8-2){1'b1}}};
+                drive_dq <= 1;
+                p2_ack <= ~p2_ack;
+              end
             end
-          end
-          default: ;
-        endcase
-
-      end else if (state == STATE_READ) begin
-        case (sdram_port)
-          PORTREFRESH: ;
-          PORT1 : begin
-            dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
-            if (!write) ack <= ~ack;
-          end
-          PORT2 : begin
-            p2_dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
-            if (!write) p2_ack <= ~p2_ack;
-          end
-          default: ;
-        endcase
-
-      end else if (state == STATE_LAST) begin
-        sdram_port <= PORTIDLE;
-        state <= STATE_IDLE;
-      end
+            default: ;
+          endcase
+        end
+        STATE_READ_0: begin
+          case (sdram_port)
+            PORTREFRESH: ;
+            PORT1 : begin
+              dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
+              if (!write) ack <= ~ack;
+            end
+            PORT2 : begin
+              p2_dout <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
+              if (!write) p2_ack <= ~p2_ack;
+            end
+            default: ;
+          endcase
+        end
+        STATE_READ_1: begin
+          case (sdram_port)
+            PORT1 : begin
+              dout48[47:32] <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
+            end
+            default: ;
+          endcase
+        end
+        STATE_READ_2: begin
+          case (sdram_port)
+            PORT1 : begin
+              dout48[31:16] <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
+            end
+            default: ;
+          endcase
+        end
+        STATE_READ_3: begin
+          case (sdram_port)
+            PORT1 : begin
+              dout48[15:0] <= addr_0 ? sd_data[15:0]:sd_data[DATA_WIDTH-1:DATA_WIDTH-16];
+            end
+            default: ;
+          endcase
+        end
+        STATE_LAST: begin
+          sdram_port <= PORTIDLE;
+          state <= STATE_IDLE;
+        end
+        default: ;
+      endcase
     end
   end
 end

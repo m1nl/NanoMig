@@ -11,10 +11,11 @@
 `define LATTICE
 // `define INFER_DPRAM
 `define ENABLE_TG68K
-// `define DISABLE_IDE       // when using inferred ram, this exceeds the chip
+// `define DISABLE_IDE        // when using inferred ram, this exceeds the chip
 // `define HDMI_TEST_PATTERN  // display static test pattern on HDMI instead of amiga video
 // `define ENABLE_INT_ROM     // enable 2k internal test rom in nanomig.v
 // `define ENABLE_INT_RAM     // if internal rom is enabled, then this also enables 2k internal test ram in nanomig.v
+// `define SPI_CUSTOM
 
 module top(
   input		clk,
@@ -70,12 +71,23 @@ wire [5:0] js1 = gpio[11:6];
 // map companion onto GPIO 21 to 25
 wire spi_dir;
 wire spi_irqn;
+
+`ifndef SPI_CUSTOM
 assign gpio[25:21] = { 3'bzzz, spi_irqn, spi_dir };
 wire spi_csn  = gpio[23];
 wire spi_dat  = gpio[25];
 
-// filter companion SPI clock
 wire [15:0] spi_sclk_D = { spi_sclk_D[14:0], gpio[24] } /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
+`else
+assign gpio[ 9] = spi_dir;
+assign gpio[22] = spi_irqn;
+wire spi_csn = gpio[8];
+wire spi_dat = gpio[10];
+
+wire [15:0] spi_sclk_D = { spi_sclk_D[14:0], gpio[11] } /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
+`endif
+
+// filter companion SPI clock
 wire spi_sclk = ( spi_sclk && spi_sclk_D != 16'h0000) ||
                 (!spi_sclk && spi_sclk_D == 16'hffff) /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
 // wire spi_sclk = gpio[24];  // no filter
@@ -84,7 +96,7 @@ wire spi_sclk = ( spi_sclk && spi_sclk_D != 16'h0000) ||
 wire [5:0] db9_joy0 = { !js0[5], !js0[0], !js0[2], !js0[1], !js0[4], !js0[3] };
 wire [5:0] db9_joy1 = { !js1[5], !js1[0], !js1[2], !js1[1], !js1[4], !js1[3] };
 
-assign leds[4] = fastram_ready || fastram_sel; // |{sd_wr,sd_rd};
+assign leds[4] = |{sd_wr,sd_rd};
 
 
 // mirror leds 0-2 to gpio 13-15
@@ -168,7 +180,7 @@ wire       osd_floppy_wrprot;
 wire       osd_ide_enable;
 `endif
 wire [1:0] osd_cpu;             // 0=68000, 1=68010, 2=68020
-wire [1:0] osd_chipset;         // 0=OCS-A500, 1=OCS-A1000, 2=ECS
+wire [2:0] osd_chipset;         // 0=OCS-A500, 1=OCS-A1000, 2=ECS, 6=AGA
 wire       osd_video_mode;      // PAL (0=PAL, 1=NTSC)
 wire [1:0] osd_video_screen;    // 0=standard, 1=overscan, 2=wide screen (jailbars)
 wire [1:0] osd_video_filter;
@@ -462,44 +474,46 @@ hid hid (
         .joystick1(hid_joy1)
          );
 
-sysctrl sysctrl (
-        .clk(clk_28m),
-        .reset(rst_28m),
+sysctrl #(
+	.AGA(1)
+) sysctrl (
+	.clk(clk_28m),
+	.reset(rst_28m),
 
-         // interface to send and receive generic system control
-        .data_in_strobe(mcu_sys_strobe),
-        .data_in_start(mcu_start),
-        .data_in(mcu_data_out),
-        .data_out(sys_data_out),
+	 // interface to send and receive generic system control
+	.data_in_strobe(mcu_sys_strobe),
+	.data_in_start(mcu_start),
+	.data_in(mcu_data_out),
+	.data_out(sys_data_out),
 
-        // values controlled by the OSD
-		.system_reset(osd_reset),
-		.system_floppy_drives(osd_floppy_drives),
-		.system_floppy_turbo(osd_floppy_turbo),
-		.system_floppy_wrprot(osd_floppy_wrprot),
+	// values controlled by the OSD
+	.system_reset(osd_reset),
+	.system_floppy_drives(osd_floppy_drives),
+	.system_floppy_turbo(osd_floppy_turbo),
+	.system_floppy_wrprot(osd_floppy_wrprot),
 `ifndef DISABLE_IDE
-		.system_ide_enable(osd_ide_enable),
+	.system_ide_enable(osd_ide_enable),
 `endif
-		.system_cpu(osd_cpu),
-		.system_chipset(osd_chipset),
-		.system_video_mode(osd_video_mode),
-		.system_video_screen(osd_video_screen),
-		.system_video_filter(osd_video_filter),
-		.system_video_scanlines(osd_video_scanlines),
-		.system_chipmem(osd_chipmem),
-		.system_slowmem(osd_slowmem),
-		.system_fastmem(osd_fastmem),
-        .system_joy_swap(osd_joy_swap),
-    	.system_volume(osd_volume),
-		.system_stereo_mix(osd_stereo_mix),
+	.system_cpu(osd_cpu),
+	.system_chipset(osd_chipset),
+	.system_video_mode(osd_video_mode),
+	.system_video_screen(osd_video_screen),
+	.system_video_filter(osd_video_filter),
+	.system_video_scanlines(osd_video_scanlines),
+	.system_chipmem(osd_chipmem),
+	.system_slowmem(osd_slowmem),
+	.system_fastmem(osd_fastmem),
+	.system_joy_swap(osd_joy_swap),
+	.system_volume(osd_volume),
+	.system_stereo_mix(osd_stereo_mix),
 
-        .int_out_n(spi_intn),
-        .int_in( { 4'b0000, sdc_int, 1'b0, hid_int, 1'b0 }),
-        .int_ack( int_ack ),
+	.int_out_n(spi_intn),
+	.int_in( { 4'b0000, sdc_int, 1'b0, hid_int, 1'b0 }),
+	.int_ack( int_ack ),
 
-        .buttons( {!user_n, !reset_n} ),
-        .leds(),
-        .color(ws2812_color)
+	.buttons( {!user_n, !reset_n} ),
+	.leds(),
+	.color(ws2812_color)
 );
 
 // digital 12 bit video
@@ -581,6 +595,8 @@ wire [15:0] cpu_din, cpu_dout;
 // Minimig ram/rom interface
 wire [23:1] ram_a;
 wire [15:0] ram_din;
+wire [47:0] chip48_din;
+
 wire [15:0] ram_dout;
 wire 	    ram_we_n;
 wire [1:0]  ram_be;
@@ -598,8 +614,10 @@ wire fastram_wr;
 wire fastram_ready;
 
 wire [15:0] sdram_dout;
+wire [47:0] sdram_dout48;
 
 assign ram_din = sdram_dout;
+assign chip48_din = sdram_dout48;
 
 // pack config values into minimig config
 wire [5:0] chipset_config = { 1'b0,osd_chipset,osd_video_mode,1'b0 };
@@ -679,7 +697,7 @@ nanomig nanomig
  ._ram_ble(ram_be[0]),      // sram lower byte select
  ._ram_we(ram_we_n),        // sram write enable
  ._ram_oe(ram_oe_n),        // sram output enable
- .chip48(48'd0),
+ .chip48(chip48_din),       // big chip read data bus
  .refresh(ram_refresh),
 
  .fastram_sel(fastram_sel),
@@ -835,7 +853,7 @@ wire [21:0] sdram_addr    =
 assign O_sdram_clk = clk_85m_shifted;
 
 sdram #(
-//    .RASCAS_DELAY(2)
+    .RASCAS_DELAY(2)
 ) sdram (
 	.sd_cke     ( O_sdram_cke   ), // SDRAM clock enable
 	.sd_data    ( IO_sdram_dq   ), // 14 bit bidirectional data bus
@@ -857,6 +875,7 @@ sdram #(
 
 	.din        ( sdram_din     ), // data input from chipset/cpu
 	.dout       ( sdram_dout    ),
+	.dout48     ( sdram_dout48  ),
 	.addr       ( sdram_addr    ), // 22 bit word address
 	.ds         ( sdram_be      ), // upper/lower data strobe
 	.cs         ( sdram_cs      ), // cpu/chipset requests read/wrie
@@ -867,7 +886,7 @@ sdram #(
 	.p2_addr       ( fastram_addr    ), // 22 bit word address
 	.p2_ds         ( fastram_be      ), // upper/lower data strobe
 	.p2_cs         ( fastram_sel     ), // cpu/chipset requests read/wrie
-	.p2_we         ( fastram_wr      ),  // cpu/chipset requests write
+	.p2_we         ( fastram_wr      ), // cpu/chipset requests write
 	.p2_ack        ( fastram_ready   )
 );
 

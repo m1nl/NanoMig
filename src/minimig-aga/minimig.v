@@ -20,7 +20,7 @@
 // This is the top module for the Minimig rev1.0 board
 //
 // 19-03-2005 	-started coding
-// 10-04-2005	-added cia's 
+// 10-04-2005	-added cia's
 //				-verified timers a/b and I/O ports
 // 11-04-2005	-adapted top to cleaned up address decoder
 //				-connected cia's to .clk(~qclk) and .tick(e) for testing
@@ -80,7 +80,7 @@
 //	- scan doubler with vertical and horizontal interpolation
 //	- transparent osd window
 //	- selected osd line highlight
-//	- osd control by joystick (up and down pressed simultaneously invoke menu) 
+//	- osd control by joystick (up and down pressed simultaneously invoke menu)
 //	- memory configuration from osd (512KB chip, 1MB chip, 512KB chip/512KB slow, 1MB chip/512KB slow)
 //	- video interpolation filter configuration from osd (vertical and horizontal)
 //	- user reset accessible from osd
@@ -90,13 +90,13 @@
 //	- PAL/NTSC selection
 //	- modified display dma engine (better compatibility)
 //	- modified sprite dma engine (better compatibility)
-//	- modified copper timing (better compatibility) 
+//	- modified copper timing (better compatibility)
 //	- modified floppy interface (better read and write support)
 //	- Action Replay III module for debugging (takes 512KB memory bank)
 //
 // Thanks to:
 // Dennis for his great Minimig
-// Loriano for impressive enclosure 
+// Loriano for impressive enclosure
 // Darrin and Oscar for their ideas, support and help
 // Toni for his indispensable help and logic analyzer (and WinUAE :-)
 //
@@ -174,7 +174,7 @@ module minimig
 	output	      _ram_oe, // sram output enable
 	input [47:0]  chip48, // big chipram read
         output	      refresh, // current bus cycle is refresh
- 
+
 	//system	pins
 	input	      rst_ext, // reset from ctrl block
 	output	      rst_out, // minimig reset status
@@ -218,7 +218,7 @@ module minimig
 	input [5:0]   ide_config,
 	output	      hdd_led,
 `endif
- 
+
         // Interface MiSTeryNano sd card interface. This very simple connection allows the core
         // to request sectors from within a OSD selected image file
 	input [3:0]   sdc_img_mounted,
@@ -231,8 +231,8 @@ module minimig
 	input	      sdc_byte_in_strobe,
 	input [8:0]   sdc_byte_addr,
 	input [7:0]   sdc_byte_in_data,
- 	output [7:0]  sdc_byte_out_data, 
- 
+ 	output [7:0]  sdc_byte_out_data,
+
 	//video
 	output	      _hsync, // horizontal sync
 	output	      _vsync, // vertical sync
@@ -261,7 +261,7 @@ module minimig
 	output [15:0] toccata_aud_left,
 	output [15:0] toccata_aud_right,
 `endif
- 
+
 `ifndef DISABLE_IDE
 	output	      ide_ena,
 
@@ -282,7 +282,7 @@ module minimig
 `ifndef LATTICE
   `default_nettype none
 `endif  
-  
+
 //--------------------------------------------------------------------------------------
 
 parameter [0:0] NTSC = 1'b0;	//Agnus type (PAL/NTSC)
@@ -314,8 +314,8 @@ wire [23:1] ram_address_out;	//ram address out
 
 //local signals for control bus
 wire        ram_rd;				//ram read enable
-wire        ram_hwr;				//ram high byte write enable 
-wire        ram_lwr;				//ram low byte write enable 
+wire        ram_hwr;				//ram high byte write enable
+wire        ram_lwr;				//ram low byte write enable
 wire        cpu_rd; 				//cpu read enable
 wire        rd_cyc;
 wire        cpu_hwr;				//cpu high byte write enable
@@ -335,7 +335,7 @@ wire  [3:0] sel_chip;			//chip ram select
 wire  [2:0] sel_slow;			//slow ram select
 wire        sel_kick;			//rom select
 wire        sel_kick1mb;      // 1MB upper rom select
-wire        sel_kick256kmirror;// mirror f8-fb to fc-ff in a1k mode    
+wire        sel_kick256kmirror;// mirror f8-fb to fc-ff in a1k mode
 wire        sel_cia;				//CIA address space
 wire        sel_reg;				//chip register select
 wire        sel_rtc;
@@ -345,7 +345,7 @@ wire        sel_cia_b;			//cia B select
 wire        sel_toccata;
 `endif
 wire        int2;					//intterrupt 2
-wire        int3;					//intterrupt 3 
+wire        int3;					//intterrupt 3
 wire        int6;					//intterrupt 6
 wire        int6_toccata;
 wire        freeze;				//Action Replay freeze button
@@ -371,10 +371,10 @@ wire        varbeamen;
 //local floppy signals (CIA<-->Paula)
 wire        _step;				//step heads of disk
 wire        direc;				//step heads direction
-wire        _sel0;				//disk0 select 	
-wire        _sel1;				//disk1 select 	
-wire        _sel2;				//disk2 select 	
-wire        _sel3;				//disk3 select 	
+wire        _sel0;				//disk0 select
+wire        _sel1;				//disk1 select
+wire        _sel2;				//disk2 select
+wire        _sel3;				//disk3 select
 wire        side;					//upper/lower disk head
 wire        _motor;				//disk motor control
 wire        _track0;				//track zero detect
@@ -442,7 +442,7 @@ always @(posedge clk) if (clk7_en && reset) ntsc <= chipset_config[1];
 assign ide_ena  = ide_config[0];
 assign ide_fast = ~ide_config[5] & cpucfg[1];
 `endif
-   
+
 //--------------------------------------------------------------------------------------
 
 //instantiate agnus
@@ -514,7 +514,7 @@ paula PAULA1
  `ifndef DISABLE_IDE
 	.int2(int2|(ide_fast ? ide_ext_irq : gayle_irq)),
 `else
-	.int2(int2), 
+	.int2(int2),
  `endif
 	.int3(int3),
 	.int6(int6 | int6_toccata),
@@ -538,7 +538,7 @@ paula PAULA1
 	.rdata(rdata),
 	.ldata_okk(ldata_okk),
 	.rdata_okk(rdata_okk),
- 
+
         // sd card interface for floppy disk emulation
         .sdc_image_mounted(sdc_img_mounted),
         .sdc_image_size(sdc_img_size),           // length of image file
@@ -558,8 +558,8 @@ paula PAULA1
 
 wire [2:0] cachecfg_pre;
 //instantiate user IO
-userio USERIO1 
-(	
+userio USERIO1
+(
 	.clk(clk),
 	.clk7_en(clk7_en),
 	.reset(reset),
@@ -580,14 +580,14 @@ userio USERIO1
 	.kms_level(kms_level),
 	.kbd_mouse_data(kbd_mouse_data)
 );
-   
+
 wire shres;
 assign ce_pix = (shres & |chipset_config[4:3]) | (hires & clk7n_en) | clk7_en;
 assign res = {shres & |chipset_config[4:3], hires};
 
 //instantiate Denise
 denise DENISE1
-(		
+(
 	.clk(clk),
 	.clk7_en(clk7_en),
 	.c1(c1),
@@ -634,13 +634,13 @@ ciaa CIAA1
 	.portb_in({_joy4[0],_joy4[1],_joy4[2],_joy4[3],_joy3[0],_joy3[1],_joy3[2],_joy3[3]}),
 	.kbd_mouse_type(kbd_mouse_type),
 	.kms_level(kms_level),
-	.kbd_mouse_data(kbd_mouse_data), 
+	.kbd_mouse_data(kbd_mouse_data),
 	.freeze(freeze),
 	.hrtmon_en (memory_config[6])
 );
 
 //instantiate cia B
-ciab CIAB1 
+ciab CIAB1
 (
 	.clk(clk),
 	.clk7_en(clk7_en),
@@ -661,7 +661,7 @@ ciab CIAB1
 );
 
 //instantiate cpu bridge
-minimig_m68k_bridge CPU1 
+minimig_m68k_bridge CPU1
 (
 	.clk(clk),
 	.clk7_en(clk7_en),
@@ -713,7 +713,7 @@ minimig_bankmapper BMAP1
 	.chip0((~ovr|~cpu_rd|dbr|cpuhlt) & sel_chip[0]),
 	.chip1(sel_chip[1]),
 	.chip2(sel_chip[2]),
-	.chip3(sel_chip[3]),	
+	.chip3(sel_chip[3]),
 	.slow0(sel_slow[0]),
 	.slow1(sel_slow[1]),
 	.slow2(sel_slow[2]),
@@ -726,11 +726,11 @@ minimig_bankmapper BMAP1
 );
 
 //instantiate sram bridge
-minimig_sram_bridge RAM1 
+minimig_sram_bridge RAM1
 (
 	.clk(clk),
 	.c1(c1),
-	.c3(c3),	
+	.c3(c3),
 	.bank(bank),
 	.address_in(ram_address_out),
 	.data_in(ram_data_in),
@@ -743,8 +743,8 @@ minimig_sram_bridge RAM1
 	._we(_ram_we),
 	._oe(_ram_oe),
 	.address(ram_address),
-	.data(ram_data),	
-	.ramdata_in(ramdata_in)	
+	.data(ram_data),
+	.ramdata_in(ramdata_in)
 );
 
 `ifdef ENABLE_CART
@@ -776,12 +776,12 @@ assign int7 = 1'b0;
 assign ovr =  1'b0;
 assign sel_cart =  1'b0;
 `endif
-   
+
 //level 7 interrupt for CPU
 assign _cpu_ipl = int7 ? 3'b000 : _iplx;	//m68k interrupt request
 
 //instantiate gary
-gary GARY1 
+gary GARY1
 (
 	.cpu_address_in(cpu_address_out),
 	.dma_address_in(dma_address_out),
@@ -864,10 +864,10 @@ gayle GAYLE1
 	.led(hdd_led)
 );
 `endif
-   
+
 //instantiate system control
-minimig_syscontrol CONTROL1 
-(	
+minimig_syscontrol CONTROL1
+(
 	.clk(clk),
 	.clk7_en(clk7_en),
 	.cnt(sof),
@@ -889,7 +889,7 @@ reg [63:0] rtc_reg;
 always @(posedge clk) begin
 	reg old_flg;
 	reg [31:0] cnt;
-	
+
 	old_flg <= rtc[64];
 	if(old_flg ^ rtc[64]) begin
 		rtc_reg <= {rtc[63:8], 8'd0};
@@ -926,9 +926,9 @@ toccata #(
 	.out_right(toccata_aud_right)
 );
 `else
-assign int6_toccata = 1'b0; 
+assign int6_toccata = 1'b0;
 `endif
-   
+
 //-------------------------------------------------------------------------------------
 
 //data multiplexer

@@ -213,7 +213,7 @@ always @(posedge clk) begin
 		   // Value "P": write enabled(0) or write protected(1) floppy
 		   if(id == "P") system_floppy_wrprot <= data_in[0];
 		   // Value "C": chipset OCS-A500(0), OCS-A1000(1), ECS(2) or AGA(6)
-		   if(id == "C") system_chipset <= AGA ? data_in[2:0] : {1'b0, data_in[1:0]};
+		   if(id == "C") system_chipset <= (AGA && data_in[1:0] == 2'd3) ? 3'd6 : {1'b0, data_in[1:0]};
 		   // Value "T": CPU 68000(0), 68010(1) or 68020(2)
 		   if(id == "T") system_cpu <= data_in[1:0];
 		   // Value "F": video filter none(0), h(1), v(2) or h+v(3)
