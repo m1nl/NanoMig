@@ -186,47 +186,100 @@ reg        cmd_fdd;			//HPS accesses floppy drive buffer
 //   - the conversion from sector to mfm fifo is designed after minimigs firmware fdd.c
 // - request next sector, once all data has been pushed into the fifo
    
-// buffer to store one sector (not MFM encoded, yet). This consists of two
-// 8 bit buffers as the data is written in bytes but read in 16 bit words
-reg [7:0]  fd_dma_buf_even[255:0];
-reg [7:0]  fd_dma_buf_odd[255:0];   
+// buffer to store one sector (not MFM encoded, yet). This is a single true
+// dual port ram (paula_floppy_dma_buf) holding both the even and the odd byte
+// of every 16 bit word: the even byte in the high byte lane [15:8] and the odd
+// byte in the low byte lane [7:0]. Data is written in bytes (using the byte
+// selects) but read back in 16 bit words.
 reg [7:0]  fd_dma_csum[3:0];
 reg [8:0]  fd_dma_wr_ptr;
-   
+
 reg [3:0]  fd_dma_buf_wr_state;
-reg [15:0] fd_dma_buf_out;
+wire [15:0] fd_dma_buf_out;
 reg [3:0]  fd_dma_wr_sec;
-reg	   fd_dma_sector_ready;  
-reg	   fd_dma_buffer_trigger_wr;	      
+reg	   fd_dma_sector_ready;
+reg	   fd_dma_buffer_trigger_wr;
 reg [7:0]  fd_dma_buffer_data_wr;
 reg	   fd_dma_is_writing;
+reg	   fd_dma_buffer_trigger_wrD; // delayed trigger for buffer write edge detect
 
-// read data from fifo
+// paula_floppy_dma_buf (true dual port ram) port signals
+reg  [15:0] fd_dma_dina, fd_dma_dinb;
+reg   [1:0] fd_dma_bsa, fd_dma_bsb;
+reg   [7:0] fd_dma_addra, fd_dma_addrb;
+reg	    fd_dma_wrena, fd_dma_wrenb;
+wire [15:0] fd_dma_douta, fd_dma_doutb;
+
+// The dual port ram output for port B directly provides the 16 bit word
+// (even byte in [15:8], odd byte in [7:0]) that is fed into the FIFO. The
+// ram's registered read replaces the former fd_dma_buf_out register, so the
+// read pointer is offset by 32 (one word less than the previous 31, which
+// compensated for that extra pipeline register).
+assign fd_dma_buf_out = fd_dma_doutb;
+
+// even/odd byte as read back from port A (used while writing to the sd card)
+wire [7:0] fd_dma_buf_even_q = fd_dma_douta[15:8];
+wire [7:0] fd_dma_buf_odd_q  = fd_dma_douta[7:0];
+
+// data written to sd card
 always @(posedge clk) begin
-   if(!fd_dma_is_writing) begin
-      if(clk7_en && fifo_wr) begin
-	 logic [7:0] fd_dma_rd_ptr = fifo_word_counter - 10'd31;  
-
-	 // permanently read 16 bits from the sector buffer
-	 // to be written to the FIFO
-	 fd_dma_buf_out <= { fd_dma_buf_even[fd_dma_rd_ptr],
-			     fd_dma_buf_odd[fd_dma_rd_ptr] };
-      end
-   end  else begin
-      // The Amiga stores odd and even bits seperated on floppy disk.
-      // Here they are recombined to be able to write them to sd card
-      // as regular bytes.
-      sdc_byte_out_data <= sdc_byte_addr[0]?
-	   { fd_dma_buf_odd[sdc_byte_addr[8:1]][3],fd_dma_buf_even[sdc_byte_addr[8:1]][3],
-	     fd_dma_buf_odd[sdc_byte_addr[8:1]][2],fd_dma_buf_even[sdc_byte_addr[8:1]][2],
-	     fd_dma_buf_odd[sdc_byte_addr[8:1]][1],fd_dma_buf_even[sdc_byte_addr[8:1]][1],
-	     fd_dma_buf_odd[sdc_byte_addr[8:1]][0],fd_dma_buf_even[sdc_byte_addr[8:1]][0]}:
-	   { fd_dma_buf_odd[sdc_byte_addr[8:1]][7],fd_dma_buf_even[sdc_byte_addr[8:1]][7],
-	     fd_dma_buf_odd[sdc_byte_addr[8:1]][6],fd_dma_buf_even[sdc_byte_addr[8:1]][6],
-	     fd_dma_buf_odd[sdc_byte_addr[8:1]][5],fd_dma_buf_even[sdc_byte_addr[8:1]][5],
-	     fd_dma_buf_odd[sdc_byte_addr[8:1]][4],fd_dma_buf_even[sdc_byte_addr[8:1]][4]};      
-   end
+   // The Amiga stores odd and even bits seperated on floppy disk.
+   // Here they are recombined to be able to write them to sd card
+   // as regular bytes.
+   sdc_byte_out_data <= sdc_byte_addr[0]?
+	{ fd_dma_buf_odd_q[3],fd_dma_buf_even_q[3],
+	  fd_dma_buf_odd_q[2],fd_dma_buf_even_q[2],
+	  fd_dma_buf_odd_q[1],fd_dma_buf_even_q[1],
+	  fd_dma_buf_odd_q[0],fd_dma_buf_even_q[0]}:
+	{ fd_dma_buf_odd_q[7],fd_dma_buf_even_q[7],
+	  fd_dma_buf_odd_q[6],fd_dma_buf_even_q[6],
+	  fd_dma_buf_odd_q[5],fd_dma_buf_even_q[5],
+	  fd_dma_buf_odd_q[4],fd_dma_buf_even_q[4]};
 end
+
+// combinational drivers for the dual port ram ports.
+//  - port A is addressed with sdc_byte_addr[8:1] and used by the sd card side
+//    (writing incoming sector data during reads, reading it back during writes)
+//  - port B is addressed with fd_dma_wr_ptr (while writing) or fd_dma_rd_ptr
+//    (while reading) and used by the fifo/cpu side
+always @(*) begin
+   // read pointer into the sector buffer while filling the fifo
+   logic [7:0] fd_dma_rd_ptr = fifo_word_counter - 10'd32;
+
+   // ---- port A : sd card side ----
+   fd_dma_addra = sdc_byte_addr[8:1];
+   // replicate the incoming byte on both lanes, the byte select picks the lane
+   fd_dma_dina  = { sdc_byte_in_data, sdc_byte_in_data };
+   // even byte -> high lane (bs[1]), odd byte -> low lane (bs[0])
+   fd_dma_bsa   = sdc_byte_addr[0] ? 2'b01 : 2'b10;
+   // write incoming sd card bytes into the buffer during a read dma
+   fd_dma_wrena = !fd_dma_is_writing && (fd_dma_buf_wr_state == 4'd2) && sdc_byte_in_strobe;
+
+   // ---- port B : fifo / cpu side ----
+   fd_dma_addrb = fd_dma_is_writing ? fd_dma_wr_ptr[7:0] : fd_dma_rd_ptr;
+   fd_dma_dinb  = { fd_dma_buffer_data_wr, fd_dma_buffer_data_wr };
+   // even byte -> high lane (bs[1]), odd byte -> low lane (bs[0])
+   fd_dma_bsb   = fd_dma_wr_ptr[8] ? 2'b10 : 2'b01;
+   // write cpu supplied bytes into the buffer during a write dma
+   fd_dma_wrenb = fd_dma_is_writing && (fd_dma_buf_wr_state == 4'd6) &&
+		  (fd_dma_buffer_trigger_wr != fd_dma_buffer_trigger_wrD);
+end
+
+// true dual port sector buffer
+paula_floppy_dma_buf fd_dma_buf
+(
+   .clk   (clk),
+   .dina  (fd_dma_dina),
+   .dinb  (fd_dma_dinb),
+   .bsa   (fd_dma_bsa),
+   .bsb   (fd_dma_bsb),
+   .addra (fd_dma_addra),
+   .addrb (fd_dma_addrb),
+   .wrena (fd_dma_wrena),
+   .wrenb (fd_dma_wrenb),
+   .douta (fd_dma_douta),
+   .doutb (fd_dma_doutb)
+);
    
 // registers needed to process outgoing fifo data
 reg [3:0] cpu_wr_state;
@@ -241,8 +294,6 @@ wire [3:0] fd_dma_wr_sec_next =  (fd_dma_wr_sec < 4'd10)?(fd_dma_wr_sec+4'd1):4'
 // state machine reading data received from sd card into the two sector buffers.
 // This buffer is split into an even and odd half
 always @(posedge clk) begin
-   reg fd_dma_buffer_trigger_wrD;
-   
    if(reset) begin
       fd_dma_buf_wr_state <= 4'h0;
       sdc_rd <= 4'b0000;
@@ -300,10 +351,9 @@ always @(posedge clk) begin
 	
 	4'd2: begin
 	   // write data into sector buffer and update checksum
-	   // write into lo/hi buffer to be able to read 16 bits from both buffers
+	   // the byte write into the buffer is handled by the dual port ram
+	   // (port A), here we only update the checksum
 	   if(sdc_byte_in_strobe) begin
-	      if(sdc_byte_addr[0])  fd_dma_buf_odd[sdc_byte_addr[8:1]] <= sdc_byte_in_data;
-	      else                  fd_dma_buf_even[sdc_byte_addr[8:1]] <= sdc_byte_in_data;
 	      fd_dma_csum[sdc_byte_addr[1:0]] <= 8'haa |
 				     fd_dma_csum[sdc_byte_addr[1:0]] ^
 				     sdc_byte_in_data ^ {1'b0, sdc_byte_in_data[7:1]};
@@ -366,11 +416,10 @@ always @(posedge clk) begin
 	4'd6: begin
 	   // transfer data from FIFO into buffer odd/even sector buffer
 	   if(fd_dma_buffer_trigger_wr != fd_dma_buffer_trigger_wrD) begin
-	      // write byte to the buffer
-	      if(fd_dma_wr_ptr[8])  fd_dma_buf_even[fd_dma_wr_ptr[7:0]] <= fd_dma_buffer_data_wr;
-	      else                  fd_dma_buf_odd[fd_dma_wr_ptr[7:0]] <= fd_dma_buffer_data_wr;
+	      // the byte write into the buffer is handled by the dual port ram
+	      // (port B), here we only advance the write pointer
 
-	      fd_dma_wr_ptr <= fd_dma_wr_ptr + 9'd1;	      
+	      fd_dma_wr_ptr <= fd_dma_wr_ptr + 9'd1;
 	      fd_dma_buffer_trigger_wrD <= fd_dma_buffer_trigger_wr;
 	   end
 
