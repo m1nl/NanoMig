@@ -24,7 +24,8 @@ module top(
   input		user_n,
 
   output [4:0]	leds,
-  output usb_tx,
+  output        usb_tx,
+  input         usb_rx,
 
   // spi flash interface
   output	mspi_cs,
@@ -68,24 +69,30 @@ wire [5:0] js0 = gpio[5:0];
 assign gpio[11:6] = 6'hzz;
 wire [5:0] js1 = gpio[11:6];
 
+// wire companion UART with FTDI
+// assign usb_tx = gpio[14];
+// assign gpio[15] = usb_rx;
+
 // map companion onto GPIO 21 to 25
 wire spi_dir;
 wire spi_irqn;
 
 `ifndef SPI_CUSTOM
 assign gpio[25:21] = { 3'bzzz, spi_irqn, spi_dir };
-wire spi_csn  = gpio[23];
-wire spi_dat  = gpio[25];
 
-wire [15:0] spi_sclk_D = { spi_sclk_D[14:0], gpio[24] } /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
+wire spi_csn  = gpio[18];
+wire spi_dat  = gpio[25];
+wire spi_clk_i = gpio[24];
 `else
 assign gpio[ 9] = spi_dir;
 assign gpio[22] = spi_irqn;
+
 wire spi_csn = gpio[8];
 wire spi_dat = gpio[10];
-
-wire [15:0] spi_sclk_D = { spi_sclk_D[14:0], gpio[11] } /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
+wire spi_clk_i = gpio[11];
 `endif
+
+wire [15:0] spi_sclk_D = { spi_sclk_D[14:0], spi_clk_i } /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
 
 // filter companion SPI clock
 wire spi_sclk = ( spi_sclk && spi_sclk_D != 16'h0000) ||
