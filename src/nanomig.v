@@ -81,7 +81,7 @@ module nanomig (
    output	 _ram_oe, // sram output enable
 
    output        fastram_sel,
-   output [22:1] fastram_addr,
+   output [23:1] fastram_addr,
    output	 fastram_lds,
    output	 fastram_uds,
    input [15:0]	 fastram_dout,
@@ -295,7 +295,7 @@ cpu_wrapper cpu_wrapper
 	.nmi_addr     (cpu_nmi_addr    )
 );
 
-assign fastram_addr = ram_addr;
+assign fastram_addr = ram_addr[23:1];
 assign fastram_lds = ram_lds;
 assign fastram_uds = ram_uds;
 assign ram_dout = fastram_dout;

@@ -15,7 +15,7 @@
 // `define HDMI_TEST_PATTERN  // display static test pattern on HDMI instead of amiga video
 // `define ENABLE_INT_ROM     // enable 2k internal test rom in nanomig.v
 // `define ENABLE_INT_RAM     // if internal rom is enabled, then this also enables 2k internal test ram in nanomig.v
-// `define SPI_CUSTOM
+`define SPI_CUSTOM
 
 module top(
   input		clk,
@@ -63,29 +63,34 @@ module top(
 wire [3:0] tmds;
 assign gpdi_dp = { tmds[0], tmds[3], tmds[2], tmds[1] };
 
+`ifndef SPI_CUSTOM
 // map joysticks onto GPIO 0 to 11
-assign gpio[5:0] = 6'hzz;
+assign gpio[5:0] = 6'bzzzzzz;
+assign gpio[11:6] = 6'bzzzzzz;
+
 wire [5:0] js0 = gpio[5:0];
-assign gpio[11:6] = 6'hzz;
 wire [5:0] js1 = gpio[11:6];
+`else
+wire [5:0] js0 = 6'b111111;
+wire [5:0] js1 = 6'b111111;
 
 // wire companion UART with FTDI
-// assign usb_tx = gpio[14];
-// assign gpio[15] = usb_rx;
+assign usb_tx = gpio[14];
+assign gpio[15] = usb_rx;
+`endif
 
 // map companion onto GPIO 21 to 25
 wire spi_dir;
 wire spi_irqn;
 
 `ifndef SPI_CUSTOM
-assign gpio[25:21] = { 3'bzzz, spi_irqn, spi_dir };
+assign {gpio[25:24], gpio[18], gpio[22:21]} = { 3'bzzz, spi_irqn, spi_dir };
 
 wire spi_csn  = gpio[18];
 wire spi_dat  = gpio[25];
 wire spi_clk_i = gpio[24];
 `else
-assign gpio[ 9] = spi_dir;
-assign gpio[22] = spi_irqn;
+assign {gpio[11:10], gpio[8], gpio[22], gpio[9]} = { 3'bzzz, spi_irqn, spi_dir };
 
 wire spi_csn = gpio[8];
 wire spi_dat = gpio[10];
@@ -97,7 +102,7 @@ wire [15:0] spi_sclk_D = { spi_sclk_D[14:0], spi_clk_i } /* synthesis syn_keep=1
 // filter companion SPI clock
 wire spi_sclk = ( spi_sclk && spi_sclk_D != 16'h0000) ||
                 (!spi_sclk && spi_sclk_D == 16'hffff) /* synthesis syn_keep=1 */ /* synthesis syn_dont_touch=1 */;
-// wire spi_sclk = gpio[24];  // no filter
+// wire spi_sclk = spi_clk_i;  // no filter
 
 // physcial dsub9 joystick & mouse port 1 and 2
 wire [5:0] db9_joy0 = { !js0[5], !js0[0], !js0[2], !js0[1], !js0[4], !js0[3] };
@@ -105,13 +110,14 @@ wire [5:0] db9_joy1 = { !js1[5], !js1[0], !js1[2], !js1[1], !js1[4], !js1[3] };
 
 assign leds[4] = |{sd_wr,sd_rd};
 
-
+`ifndef SPI_CUSTOM
 // mirror leds 0-2 to gpio 13-15
 assign gpio[15:13] = leds[2:0];
 
 // map ws2812 to gpio 12
 wire	   ws2812;
 assign gpio[12] = ws2812;
+`endif
 
 // HDMI clock:  141.6666 MHz
 // Pixel clock: 28.33333 MHz (HDMI/5)
@@ -585,13 +591,10 @@ wire [7:0] physical_port_2 = {
               (hid_joy1[1] | db9_joy1[1]),
               (hid_joy1[0] | db9_joy1[0]) };
 
-wire [7:0] joystick0;
-wire [7:0] joystick1;
-
 // Swap Joysticks
 
-assign joystick0 = osd_joy_swap ? physical_port_1 : physical_port_2;
-assign joystick1 = osd_joy_swap ? physical_port_2 : physical_port_1;
+wire [7:0] joystick0 = osd_joy_swap ? physical_port_1 : physical_port_2;
+wire [7:0] joystick1 = osd_joy_swap ? physical_port_2 : physical_port_1;
 
 wire [23:1] cpu_a;
 wire cpu_as_n, cpu_lds_n, cpu_uds_n;
@@ -611,7 +614,7 @@ wire 	    ram_oe_n;
 wire		ram_refresh;
 
 wire fastram_sel;
-wire [22:1] fastram_addr;
+wire [23:1] fastram_addr;
 wire fastram_lds;
 wire fastram_uds;
 wire [15:0] fastram_dout;

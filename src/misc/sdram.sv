@@ -61,7 +61,7 @@ module sdram #(parameter DATA_WIDTH=16, RASCAS_DELAY=1, RAS_WIDTH=13, CAS_WIDTH=
 
     input [15:0]      p2_din,  // data input from chipset/cpu
     output reg [15:0] p2_dout,
-    input [21:0]      p2_addr, // 22 bit word address
+    input [22:0]      p2_addr, // 23 bit word address
     input [1:0]      p2_ds,   // upper/lower data strobe
     input          p2_cs,   // cpu/chipset requests read/wrie
     input          p2_we,   // cpu/chipset requests write
@@ -87,7 +87,7 @@ localparam DQM_WIDTH = (DATA_WIDTH/8);     // number of DQM bits (4 for 32 data 
 // both 16 bit data words
 localparam ADDR_BASE = (DATA_WIDTH==32)?1:0;
 wire [31:0] addr32 = { {(10+ADDR_BASE){1'b0}}, addr[21:ADDR_BASE]};
-wire [31:0] p2_addr32 = { {(10+ADDR_BASE){1'b0}}, p2_addr[21:ADDR_BASE]};
+wire [31:0] p2_addr32 = { {(10+ADDR_BASE){1'b0}}, p2_addr[22:ADDR_BASE]};
 
 reg [RAS_WIDTH-1:0] sd_addr_next;
 reg addr_0;

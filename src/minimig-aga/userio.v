@@ -87,6 +87,7 @@ wire         test_load;     // load test value to mouse counter
 wire  [15:0] test_data;     // mouse counter test value
 wire          cd32pad = 1'b0;
 wire         joy_swap = 1'b0;
+wire       joy_ana_en = 1'b0;
 
 //--------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------
@@ -100,7 +101,6 @@ always @ (posedge clk) begin
 	end
 end
 
-wire       joy_ana_en = 1'b0;
 reg [15:0] ajoy1,ajoy2;
 
 always @(posedge clk) begin

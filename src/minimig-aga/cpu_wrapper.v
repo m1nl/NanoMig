@@ -134,14 +134,21 @@ assign ramdat = sel_rtg ? {ramdout[7:0], ramdout[15:8]}  : ramdout;
 // supported configs: SDR + (Z2, Z3_1, Z3_0+Z3_1)
 
 // Mapping for TangNano 20k
-// Chip RAM, 00-1f => 00-1f
-// Fast RAM, 20-5f => 20-5f;
-// Slow RAM, c0-d7 => 60-77;
-// Kick ROM, f8-ff => 78->7f;
-// ramaddr[21] = cpu_addr[21] | cpu_addr[23];
+// Chip RAM,      00-1f => 00-1f
+// 4MiB Fast RAM, 20-5f => 20-5f;
+// Slow RAM,      c0-d7 => 60-77;
+// Kick ROM,      f8-ff => 78-7f;
+// 2MiB Fast RAM  60-7f => 80-9f;
+// 2MiB Fast RAM  89-9f => a0-bf;
 // All other bits passed through unmodified.
-assign ramaddr[28:23] = 6'b0;
-assign ramaddr[22:21] = {cpu_addr[22],cpu_addr[21]|cpu_addr[23]};
+
+assign ramaddr[28:24] = 5'b0;
+
+assign ramaddr[23:21] = (fastramcfg == 1 || fastramcfg == 2) ? {1'b0, cpu_addr[22], cpu_addr[21] | cpu_addr[23]} :	// 2MiB or 4MiB
+				(cpu_addr[23:21] == 3'b011) ? 3'b100 :	// $600000-$7FFFFF -> $800000-$9FFFFF
+				(cpu_addr[23:21] == 3'b100) ? 3'b101 :	// $800000-$9FFFFF -> $A00000-$BFFFFF
+				{1'b0, cpu_addr[22:21]};		// $200000-$5FFFFF -> $200000-$5FFFFF
+
 assign ramaddr[20:1] = cpu_addr[20:1];
 
 assign fastchip_lds = lds_in;
