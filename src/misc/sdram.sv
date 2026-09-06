@@ -254,6 +254,8 @@ assign sd_cas = sd_cmd[1];
 assign sd_we  = sd_cmd[0];
 
 reg  [15:0] ram_din;
+reg         ram_we;
+reg   [1:0] ram_ds;
 
 wire [15:0] ram_dout_lo;
 wire [15:0] ram_dout_hi;
@@ -320,7 +322,12 @@ always @(posedge clk) begin
         sd_addr_cas[CAS_WIDTH-1:0] <= addr32[CAS_WIDTH-1:0];
         sd_addr_cas[10] <= 1'b1;  // precharge
 
-        sd_ba   <= addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
+        sd_ba <= addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
+
+        ram_ds  <= ds;
+        ram_we  <= we;
+        ram_din <= din;
+
         addr_0  <= addr[0];
 
       end else if (p2_cs) begin
@@ -330,7 +337,12 @@ always @(posedge clk) begin
         sd_addr_cas[CAS_WIDTH-1:0] <= p2_addr32[CAS_WIDTH-1:0];
         sd_addr_cas[10] <= 1'b1;  // precharge
 
-        sd_ba   <= p2_addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
+        sd_ba <= p2_addr32[RAS_WIDTH+CAS_WIDTH+1:RAS_WIDTH+CAS_WIDTH];
+
+        ram_ds  <= p2_ds;
+        ram_we  <= p2_we;
+        ram_din <= p2_din;
+
         addr_0  <= p2_addr[0];
       end
 
@@ -340,17 +352,17 @@ always @(posedge clk) begin
 
         if (cs && !refresh) begin
           sdram_port <= PORT_1;
-          sd_cmd <= CMD_ACTIVE;
+          sd_cmd     <= CMD_ACTIVE;
 
         end else if (refreshcnt == 0 || (cs && refresh)) begin
           sdram_port <= PORT_REFRESH;
-          sd_cmd <= CMD_AUTO_REFRESH;
+          sd_cmd     <= CMD_NOP;
 
           refreshcnt <= SYNC_CYCLES_PER_REFRESH[REFRESHCNT_MAX_WIDTH-1:0];
 
         end else if (p2_cs) begin
           sdram_port <= PORT_2;
-          sd_cmd <= CMD_ACTIVE;
+          sd_cmd     <= CMD_ACTIVE;
         end
       end
     end
@@ -359,20 +371,21 @@ always @(posedge clk) begin
 
       case (sdram_port)
         PORT_1: begin
-          sd_cmd <= we ? CMD_WRITE : CMD_READ;
-          ram_din <= din;
-          if (we) begin
+          sd_cmd <= ram_we ? CMD_WRITE : CMD_READ;
+          if (ram_we) begin
             sd_dq <= 1;
             ack   <= ~ack;
           end
         end
         PORT_2: begin
-          sd_cmd <= p2_we ? CMD_WRITE : CMD_READ;
-          ram_din <= p2_din;
-          if (p2_we) begin
+          sd_cmd <= ram_we ? CMD_WRITE : CMD_READ;
+          if (ram_we) begin
             sd_dq  <= 1;
             p2_ack <= ~p2_ack;
           end
+        end
+        PORT_REFRESH: begin
+          sd_cmd <= CMD_AUTO_REFRESH;
         end
         default: ;
       endcase
@@ -381,11 +394,11 @@ always @(posedge clk) begin
       case (sdram_port)
         PORT_1 : begin
           dout <= ram_dout;
-          if (!we) ack <= ~ack;
+          if (!ram_we) ack <= ~ack;
         end
         PORT_2 : begin
           p2_dout <= ram_dout;
-          if (!p2_we) p2_ack <= ~p2_ack;
+          if (!ram_we) p2_ack <= ~p2_ack;
         end
         default: ;
       endcase
@@ -405,8 +418,8 @@ generate
       case (state)
         STATE_CAS: begin
           case (sdram_port)
-            PORT_1: if (we)    sd_dqm <= (addr_0 ? {2'b11,    ds} : {ds,    2'b11});
-            PORT_2: if (p2_we) sd_dqm <= (addr_0 ? {2'b11, p2_ds} : {p2_ds, 2'b11});
+            PORT_1: if (ram_we) sd_dqm <= (addr_0 ? {2'b11, ram_ds} : {ram_ds, 2'b11});
+            PORT_2: if (ram_we) sd_dqm <= (addr_0 ? {2'b11, ram_ds} : {ram_ds, 2'b11});
             default: ;
           endcase
         end
@@ -462,8 +475,8 @@ generate
       case (state)
         STATE_CAS: begin
           case (sdram_port)
-            PORT_1: if (we)    sd_dqm <= ds;
-            PORT_2: if (p2_we) sd_dqm <= p2_ds;
+            PORT_1: if (ram_we) sd_dqm <= ram_ds;
+            PORT_2: if (ram_we) sd_dqm <= ram_ds;
             default: ;
           endcase
         end
