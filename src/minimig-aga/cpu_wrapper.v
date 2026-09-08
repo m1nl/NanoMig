@@ -364,38 +364,37 @@ wire        longword;
 reg [2:0]   cpu_ipl;
 reg         chipready;
 
-// tg68_armed keeps the cpu from being clocked before the reset has been
-// released for at least one cycle, otherwise the TG68K can hang on startup
-reg  tg68_armed;
-always @(posedge clk) tg68_armed <= reset;
-
 `ifdef CPU_SLOW14
 // Advance the TG68K at most every second clk cycle (14MHz effective on a
 // 28MHz clock, matching the 14MHz 68EC020 of a real A1200). This makes all
 // TG68K internal register-to-register paths true two-cycle paths which is
-// required for timing closure on slow devices. The single cycle ready
-// strobes of the bus interfaces are latched so no handshake is ever lost.
-// Instead of a fixed phase enable only a minimum gap of one idle cycle
-// after every advance is enforced, so memory handshakes are consumed at
-// the earliest opportunity and no average alignment latency is added.
-reg  gap;       // previous clk cycle advanced the cpu
-reg  readyhold;
-wire ready_now = chipready | ramready
-`ifdef FASTCHIP_DEPRECATED
-     | fastchip_ready
-`endif
-     ;
-wire clkena_slow = ~gap & ((~cpu_req & tg68_armed) | ready_now | readyhold);
-assign cpu_clkena = clkena_slow;
+// required for timing closure on slow devices. Since the memory cycle always
+// takes at least one cycle and has at least one wait state, it's enough to
+// slow down CPU during its internal cycle.
+reg cpu_internal_ack;
+
 always @(posedge clk) begin
-	gap <= clkena_slow;
-	if (clkena_slow)               readyhold <= 1'b0;
-	else if (ready_now & cpu_req)  readyhold <= 1'b1;
+	if (cpu_clkena || ~reset)
+		cpu_internal_ack <= 1'b0;
+	else if (~cpu_req)
+		cpu_internal_ack <= 1'b1;
 end
+assign cpu_clkena = cpu_internal_ack | chipready | ramready
+`ifdef FASTCHIP_DEPRECATED
+	| fastchip_ready
+`endif
+;
 `else
+// tg68_armed keeps the cpu from being clocked before the reset has been
+// released for at least one cycle, otherwise the TG68K can hang on startup
+reg tg68_armed;
+
+always @(posedge clk)
+	tg68_armed <= reset;
+
 assign cpu_clkena = (~cpu_req & tg68_armed) | chipready | ramready
 `ifdef FASTCHIP_DEPRECATED
-		    | fastchip_ready
+	| fastchip_ready
 `endif
 ;
 `endif
