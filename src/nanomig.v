@@ -486,7 +486,7 @@ always @(posedge clk_sys) begin
       fastram_sel_r <= 1'b0;
       wbuf_pending  <= 1'b0;
     end
-    if(fastram_done_d && (fill_state == 2'd1)) begin
+    if(fastram_done && (fill_state == 2'd1)) begin
       fill_line  <= { fastram_dout, fastram_dout48 };
       fill_cnt   <= 2'd0;
       fill_state <= 2'd2;
